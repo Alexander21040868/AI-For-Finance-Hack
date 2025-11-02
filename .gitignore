@@ -36,7 +36,6 @@ checkpoints/
 *.npy
 
 answers.csv
-submission.csv
 *.xlsx
 *.xls
 *.tsv

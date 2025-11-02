@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import concurrent.futures
+import pickle
 
 # === 1. КОНФИГУРАЦИЯ И НАСТРОЙКА ===
 
@@ -32,8 +33,13 @@ CHUNK_OVERLAP = 150
 EMBEDDING_BATCH_SIZE = 100  # Отправляем по 100 чанков за один API-запрос
 FAISS_DIMENSION = 1536  # Размерность векторов для модели text-embedding-3-small
 TOP_K_RETRIEVAL = 7  # Количество наиболее релевантных чанков для поиска
+
+# NEW:
 ASYNC_MODE = True # Обрабатывать вопросы пользователей в асинхронном (True) либо синхронном (False) режиме
 MAX_WORKERS = 10 # Число параллельных обработчиков
+USE_LOCAL_RAG_FILES = True # Использовать RAG-артефакты, которые уже сохранены в директории
+FAISS_INDEX_PATH = "faiss_index.bin"
+CHUNKS_PATH = "corpus_chunks.pkl"
 
 # Инициализация клиентов для OpenAI API
 # Один клиент для генерации ответов, другой для создания эмбеддингов
@@ -152,7 +158,8 @@ def generate_hypothetical_answer(question: str) -> str:
 
 def answer_question(question, index, all_chunks):
     """
-    Принимает вопрос, РАСШИРЯЕТ его, находит релевантный контекст и генерирует ответ.
+    Принимает вопрос, РАСШИРЯЕТ его, генерирует гипотетический ответ на вопрос,
+    находит релевантный контекст и генерирует ответ.
     """
     all_queries = [question]
 
@@ -201,7 +208,23 @@ if __name__ == "__main__":
     print("--- Запуск пайплайна финансового ассистента ---")
 
     # Этап I: Подготовка RAG-артефактов (индексация базы знаний)
-    faiss_index, corpus_chunks = create_rag_artifacts('./train_data.csv')
+
+    if USE_LOCAL_RAG_FILES and os.path.exists(FAISS_INDEX_PATH) and os.path.exists(CHUNKS_PATH):
+        # Вариант с локальными файлами (чтобы не жечь токены в ембеддинг-модели зря)
+        print(f"Использую сохраненные RAG-артефакты. Загрузка из '{FAISS_INDEX_PATH}' и '{CHUNKS_PATH}'...")
+        faiss_index = faiss.read_index(FAISS_INDEX_PATH)
+        with open(CHUNKS_PATH, 'rb') as f:
+            corpus_chunks = pickle.load(f)
+        print("Артефакты RAG успешно загружены.")
+    else:
+        print("RAG-артефакты будут сгенерированы с нуля.")
+        faiss_index, corpus_chunks = create_rag_artifacts('./train_data.csv')
+        print(f"Сохранение индекса FAISS в файл '{FAISS_INDEX_PATH}'...")
+        faiss.write_index(faiss_index, FAISS_INDEX_PATH)
+
+        print(f"Сохранение чанков в файл '{CHUNKS_PATH}'...")
+        with open(CHUNKS_PATH, 'wb') as f:
+            pickle.dump(corpus_chunks, f)
 
     print("\n--- Подготовка завершена. Начинаем генерацию ответов на вопросы. ---")
 
@@ -209,8 +232,6 @@ if __name__ == "__main__":
     questions_df = pd.read_csv('./questions.csv')
     questions = questions_df['Вопрос'].tolist()
     answers = [None] * len(questions)
-
-
 
     if not ASYNC_MODE:
         for i, question in tqdm(enumerate(questions), desc="Обработка вопросов"):
