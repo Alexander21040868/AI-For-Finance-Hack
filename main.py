@@ -8,6 +8,7 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 from openai import OpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+import concurrent.futures
 
 # === 1. КОНФИГУРАЦИЯ И НАСТРОЙКА ===
 
@@ -31,6 +32,8 @@ CHUNK_OVERLAP = 150
 EMBEDDING_BATCH_SIZE = 100  # Отправляем по 100 чанков за один API-запрос
 FAISS_DIMENSION = 1536  # Размерность векторов для модели text-embedding-3-small
 TOP_K_RETRIEVAL = 7  # Количество наиболее релевантных чанков для поиска
+ASYNC_MODE = True # Обрабатывать вопросы пользователей в асинхронном (True) либо синхронном (False) режиме
+MAX_WORKERS = 10 # Число параллельных обработчиков
 
 # Инициализация клиентов для OpenAI API
 # Один клиент для генерации ответов, другой для создания эмбеддингов
@@ -125,12 +128,40 @@ def expand_question(question):
         print(f"Ошибка при расширении вопроса: {e}")
         return []
 
+def generate_hypothetical_answer(question: str) -> str:
+    """Генерирует гипотетический ответ на вопрос, не основываясь на базу данных,
+    чтобы затем использовать его для поиска по базе данных
+
+    Возвращает сгенерированный ответ на вопрос"""
+    prompt = f"""Ты — AI-ассистент. Пожалуйста, сгенерируй короткий, но полный гипотетический ответ на следующий вопрос. Этот ответ будет использован для поиска информации в базе знаний. Не говори, что ты не знаешь ответа. Просто придумай правдоподобный ответ.
+
+Вопрос: {question}
+
+Гипотетический ответ:"""
+    try:
+        response = llm_client.chat.completions.create(
+            model=GENERATION_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Ошибка при генерации гипотетического ответа: {e}")
+        return question
+
 
 def answer_question(question, index, all_chunks):
     """
     Принимает вопрос, РАСШИРЯЕТ его, находит релевантный контекст и генерирует ответ.
     """
-    all_queries = [question] + expand_question(question)
+    all_queries = [question]
+
+    expanded_questions = expand_question(question)
+    hypothetical_answer = generate_hypothetical_answer(question)
+
+    all_queries.extend(expanded_questions)
+    all_queries.append(hypothetical_answer)
+
     query_embeddings = get_embeddings_in_batches(all_queries, EMBEDDING_MODEL, 10)
 
     retrieved_indices = set()
@@ -176,11 +207,27 @@ if __name__ == "__main__":
 
     # Этап II: Генерация ответов на вопросы из questions.csv
     questions_df = pd.read_csv('./questions.csv')
-    answers = []
+    questions = questions_df['Вопрос'].tolist()
+    answers = [None] * len(questions)
 
-    for user_question in tqdm(questions_df['Вопрос'], desc="Обработка вопросов"):
-        generated_answer = answer_question(user_question, faiss_index, corpus_chunks)
-        answers.append(generated_answer)
+
+
+    if not ASYNC_MODE:
+        for i, question in tqdm(enumerate(questions), desc="Обработка вопросов"):
+            answer = answer_question(question, faiss_index, corpus_chunks)
+            answers[i] = answer
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_question = {
+                executor.submit(answer_question, question, faiss_index, corpus_chunks): i
+                for i, question in enumerate(questions)
+            }
+
+            for future in tqdm(concurrent.futures.as_completed(future_to_question), total=len(questions),
+                               desc="Обработка вопросов"):
+                question_index = future_to_question[future]
+                answer = future.result()
+                answers[question_index] = answer
 
     # Сохранение результатов
     questions_df['Ответы на вопрос'] = answers
