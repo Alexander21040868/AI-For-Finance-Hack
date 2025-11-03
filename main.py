@@ -2,7 +2,6 @@
 
 import os
 import requests
-import json
 import pandas as pd
 import numpy as np
 import faiss
@@ -13,6 +12,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import concurrent.futures
 import pickle
 import threading
+import datetime
+import time
+import functools
 
 # === 1. КОНФИГУРАЦИЯ И НАСТРОЙКА ===
 
@@ -43,7 +45,8 @@ MAX_WORKERS = 10 # Число параллельных обработчиков
 USE_LOCAL_RAG_FILES = True # Использовать RAG-артефакты, которые уже сохранены в директории
 FAISS_INDEX_PATH = "faiss_index.bin"
 CHUNKS_PATH = "corpus_chunks.pkl"
-LOGGING = True
+LOGGING_TOKEN_USAGE = True
+LOGGING_TIME_USAGE = True
 
 # Настройки Rerank:
 USE_RERANKER = True
@@ -54,15 +57,15 @@ RETRIEVAL_K_FOR_RERANK = 30 # Сколько чанков изначально �
 llm_client = OpenAI(base_url=BASE_URL, api_key=LLM_API_KEY)
 embedder_client = OpenAI(base_url=BASE_URL, api_key=EMBEDDER_API_KEY)
 
-# === КЛАСС ДЛЯ ЛОГГИРОВАНИЯ ИСПОЛЬЗОВАНИЯ ТОКЕНОВ === #
 class TokenUsageLogger:
     def __init__(self):
         self.data = []
         self._lock = threading.Lock()
+        self.run_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def log_usage(self, usage, model_name: str, task: str, task_data: str) -> None:
         """Сохраняет данные об использовании токенов моделью"""
-        if not LOGGING:
+        if not LOGGING_TOKEN_USAGE:
             return
         with self._lock:
             log = {
@@ -76,24 +79,14 @@ class TokenUsageLogger:
             self.data.append(log)
 
     def save_reports(self, output_dir="logs"):
-        if not LOGGING:
+        if not LOGGING_TOKEN_USAGE:
             pass
         os.makedirs(output_dir, exist_ok=True)
 
         full_log_df = pd.DataFrame(self.data)
-        full_log_path = os.path.join(output_dir, "token_usage_full_log.csv")
+        full_log_path = os.path.join(output_dir, f"{self.run_timestamp}_token_usage_full_log.csv")
         full_log_df.to_csv(full_log_path, index=False, encoding='utf-8')
         print(f"\nПолный лог использования токенов сохранен в: {full_log_path}")
-
-        by_model = full_log_df.groupby('model_name').agg(
-            prompt_tokens=('prompt_tokens', 'sum'),
-            completion_tokens=('completion_tokens', 'sum'),
-            total_tokens=('total_tokens', 'sum'),
-            call_count=('model_name', 'size')
-        ).reset_index()
-        by_model_path = os.path.join(output_dir, "token_usage_by_model.csv")
-        by_model.to_csv(by_model_path, index=False, encoding='utf-8')
-        print(f"Агрегированный отчет по моделям сохранен в: {by_model_path}")
 
         by_model_task = full_log_df.groupby(['model_name', 'task']).agg(
             prompt_tokens=('prompt_tokens', 'sum'),
@@ -102,11 +95,11 @@ class TokenUsageLogger:
             call_count=('model_name', 'size')
         ).reset_index()
 
-        total_tokens_overall = by_model['total_tokens'].sum()
+        total_tokens_overall = by_model_task['total_tokens'].sum()
         if total_tokens_overall > 0:
             by_model_task['percentage_of_total'] = (by_model_task['total_tokens'] / total_tokens_overall * 100).round(2)
 
-        by_model_task_path = os.path.join(output_dir, "token_usage_by_model_task.csv")
+        by_model_task_path = os.path.join(output_dir, f"{self.run_timestamp}_token_usage_by_model_task.csv")
         by_model_task.to_csv(by_model_task_path, index=False, encoding='utf-8')
         print(f"Агрегированный отчет по задачам сохранен в: {by_model_task_path}")
 
@@ -121,33 +114,107 @@ class TokenUsageLogger:
         print(by_model_task_display.to_string(index=False))
         print("-----------------------------------------------------------------")
 
-def rerank_docs(query, documents, key):
-    # Базовый url - сохранять без изменения
-    url = "https://ai-for-finance-hack.up.railway.app/rerank"
-    # Формируем заголовок для запроса
-    headers = {
-        # Указываем тип получаемого контента
-        "Content-Type": "application/json",
-        # Указываем наш ключ, полученный ранее
-        "Authorization": f"Bearer {key}"
-    }
-    # Формируем сам запрос
-    payload = {
-        # Указываем модель
-        "model": "deepinfra/Qwen/Qwen3-Reranker-4B",
-        # Формируем текст запроса
-        "query": query,
-        # Добавляем документы для ранжирования
-        "documents": documents
-    }
-    # Отправляем запрос
-    response = requests.post(url, headers=headers, json=payload)
-    # Возвращаем результат запроса
-    return response.json()
+
+class TimeUsageLogger:
+    """Класс для сбора и анализа времени выполнения различных задач."""
+
+    def __init__(self):
+        self.data = []
+        self._lock = threading.Lock()
+        self.run_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    def log_time(self, task_name: str, duration_seconds: float) -> None:
+        """Сохраняет данные о времени выполнения задачи."""
+        if not LOGGING_TIME_USAGE:
+            return
+        with self._lock:
+            log_entry = {
+                "task_name": task_name,
+                "duration_seconds": duration_seconds,
+            }
+            self.data.append(log_entry)
+
+    def save_reports(self, output_dir="logs"):
+        """Сохраняет полный и агрегированный отчеты по времени выполнения."""
+        if not LOGGING_TIME_USAGE or not self.data:
+            return
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 1. Сохранение полного лога
+        full_log_df = pd.DataFrame(self.data)
+        full_log_path = os.path.join(output_dir, f"{self.run_timestamp}_time_usage_full_log.csv")
+        full_log_df.to_csv(full_log_path, index=False, encoding='utf-8')
+        print(f"\nПолный лог времени выполнения сохранен в: {full_log_path}")
+
+        # 2. Создание и сохранение агрегированного отчета
+        agg_report = full_log_df.groupby('task_name').agg(
+            total_duration_sec=('duration_seconds', 'sum'),
+            call_count=('task_name', 'size'),
+            avg_duration_sec=('duration_seconds', 'mean'),
+            min_duration_sec=('duration_seconds', 'min'),
+            max_duration_sec=('duration_seconds', 'max')
+        ).reset_index()
+
+        agg_report = agg_report.sort_values(by='total_duration_sec', ascending=False)
+
+        # Добавляем процент от общего времени
+        total_time_overall = agg_report['total_duration_sec'].sum()
+        if total_time_overall > 0:
+            agg_report['percentage_of_total_time'] = \
+                (agg_report['total_duration_sec'] / total_time_overall * 100).round(2)
+
+        agg_report_path = os.path.join(output_dir, f"{self.run_timestamp}_time_usage_summary.csv")
+        agg_report.to_csv(agg_report_path, index=False, encoding='utf-8')
+        print(f"Агрегированный отчет по времени выполнения сохранен в: {agg_report_path}")
+
+        # 3. Вывод красивой таблицы в консоль
+        print("\n--- Сводный отчет по времени выполнения (Задача) ---")
+        display_df = agg_report.copy()
+        for col in ['total_duration_sec', 'avg_duration_sec', 'min_duration_sec', 'max_duration_sec']:
+            display_df[col] = display_df[col].apply(lambda x: f"{x:.3f}s")
+        if 'percentage_of_total_time' in display_df.columns:
+            display_df['percentage_of_total_time'] = display_df['percentage_of_total_time'].apply(
+                lambda x: f"{x}%")
+
+        print(display_df.to_string(index=False))
+        print("-------------------------------------------------------")
 
 token_logger = TokenUsageLogger()
-# === 2. ФУНКЦИИ ПАЙПЛАЙНА ===
+time_logger = TimeUsageLogger()
 
+def timed(func):
+    """Декоратор для измерения времени выполнения функции."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if not LOGGING_TIME_USAGE:  # Проверяем флаг в начале
+            return func(*args, **kwargs)
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        duration = end_time - start_time
+        time_logger.log_time(func.__name__, duration)
+        return result
+
+    return wrapper
+
+@timed
+def rerank_docs(query, documents, key):
+    url = "https://ai-for-finance-hack.up.railway.app/rerank"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}"
+    }
+    payload = {
+        "model": "deepinfra/Qwen/Qwen3-Reranker-4B",
+        "query": query,
+        "documents": documents
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    return response.json()
+
+
+# === 2. ФУНКЦИИ ПАЙПЛАЙНА ===
+@timed
 def get_embeddings_in_batches(texts_list, model, batch_size, show_progress=False):
     """
     Получает эмбеддинги для списка текстов, отправляя их пакетами (батчами).
@@ -171,7 +238,7 @@ def get_embeddings_in_batches(texts_list, model, batch_size, show_progress=False
 
     return np.array(all_embeddings).astype('float32')
 
-
+@timed
 def create_rag_artifacts(file_path):
     """
     Основная функция для создания артефактов RAG:
@@ -213,8 +280,8 @@ def create_rag_artifacts(file_path):
 
     return index, all_chunks
 
-
-def expand_question(question):
+@timed
+def expand_question(question: str) -> str:
     """Использует LLM для генерации альтернативных формулировок вопроса."""
     prompt = f"""Ты — AI-ассистент. Твоя задача — сгенерировать 3 альтернативных формулировки для заданного вопроса, чтобы улучшить поиск в базе знаний. Не отвечай на вопрос, а только перефразируй его. Выведи каждый вариант с новой строки, без нумерации.
 
@@ -234,11 +301,10 @@ def expand_question(question):
         print(f"Ошибка при расширении вопроса: {e}")
         return []
 
+@timed
 def generate_hypothetical_answer(question: str) -> str:
     """Генерирует гипотетический ответ на вопрос, не основываясь на базу данных,
-    чтобы затем использовать его для поиска по базе данных
-
-    Возвращает сгенерированный ответ на вопрос"""
+    чтобы затем использовать его для поиска по базе данных"""
     prompt = f"""Ты — AI-ассистент. Пожалуйста, сгенерируй короткий, но полный гипотетический ответ на следующий вопрос. Этот ответ будет использован для поиска информации в базе знаний. Не говори, что ты не знаешь ответа. Просто придумай правдоподобный ответ.
 
 Вопрос: {question}
@@ -257,7 +323,7 @@ def generate_hypothetical_answer(question: str) -> str:
         print(f"Ошибка при генерации гипотетического ответа: на вопрос {question}: {e}")
         return question
 
-
+@timed
 def answer_question(question, index, all_chunks):
     """
     Принимает вопрос, РАСШИРЯЕТ его, генерирует гипотетический ответ на вопрос,
@@ -387,3 +453,4 @@ if __name__ == "__main__":
 
     # Сохранение логов
     token_logger.save_reports()
+    time_logger.save_reports()
