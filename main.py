@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import os
+import requests
+import json
 import pandas as pd
 import numpy as np
 import faiss
@@ -33,7 +35,7 @@ CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 150
 EMBEDDING_BATCH_SIZE = 100  # Отправляем по 100 чанков за один API-запрос
 FAISS_DIMENSION = 1536  # Размерность векторов для модели text-embedding-3-small
-TOP_K_RETRIEVAL = 7  # Количество наиболее релевантных чанков для поиска
+K_FINAL_CHUNKS = 7  # Количество наиболее релевантных чанков для поиска
 
 # NEW:
 ASYNC_MODE = True # Обрабатывать вопросы пользователей в асинхронном (True) либо синхронном (False) режиме
@@ -42,6 +44,10 @@ USE_LOCAL_RAG_FILES = True # Использовать RAG-артефакты, к
 FAISS_INDEX_PATH = "faiss_index.bin"
 CHUNKS_PATH = "corpus_chunks.pkl"
 LOGGING = True
+
+# Настройки Rerank:
+USE_RERANKER = True
+RETRIEVAL_K_FOR_RERANK = 30 # Сколько чанков изначально достаем из FAISS для переранжирования
 
 # Инициализация клиентов для OpenAI API
 # Один клиент для генерации ответов, другой для создания эмбеддингов
@@ -114,6 +120,30 @@ class TokenUsageLogger:
 
         print(by_model_task_display.to_string(index=False))
         print("-----------------------------------------------------------------")
+
+def rerank_docs(query, documents, key):
+    # Базовый url - сохранять без изменения
+    url = "https://ai-for-finance-hack.up.railway.app/rerank"
+    # Формируем заголовок для запроса
+    headers = {
+        # Указываем тип получаемого контента
+        "Content-Type": "application/json",
+        # Указываем наш ключ, полученный ранее
+        "Authorization": f"Bearer {key}"
+    }
+    # Формируем сам запрос
+    payload = {
+        # Указываем модель
+        "model": "deepinfra/Qwen/Qwen3-Reranker-4B",
+        # Формируем текст запроса
+        "query": query,
+        # Добавляем документы для ранжирования
+        "documents": documents
+    }
+    # Отправляем запрос
+    response = requests.post(url, headers=headers, json=payload)
+    # Возвращаем результат запроса
+    return response.json()
 
 token_logger = TokenUsageLogger()
 # === 2. ФУНКЦИИ ПАЙПЛАЙНА ===
@@ -224,7 +254,7 @@ def generate_hypothetical_answer(question: str) -> str:
         token_logger.log_usage(response.usage, GENERATION_MODEL, "generate_hypothetical_answer", f"{question=} {hypothetical_answer=}")
         return hypothetical_answer
     except Exception as e:
-        print(f"Ошибка при генерации гипотетического ответа: {e}")
+        print(f"Ошибка при генерации гипотетического ответа: на вопрос {question}: {e}")
         return question
 
 
@@ -244,13 +274,35 @@ def answer_question(question, index, all_chunks):
     query_embeddings = get_embeddings_in_batches(all_queries, EMBEDDING_MODEL, 10)
 
     retrieved_indices = set()
-    _, I = index.search(query_embeddings, TOP_K_RETRIEVAL)
+    k_retrieval = RETRIEVAL_K_FOR_RERANK if USE_RERANKER else K_FINAL_CHUNKS
+    _, I = index.search(query_embeddings, k_retrieval)
     for indices_per_query in I:
         for idx in indices_per_query:
             retrieved_indices.add(idx)
 
     retrieved_chunks = [all_chunks[i] for i in retrieved_indices]
-    context = "\n\n---\n\n".join(retrieved_chunks)
+    if not USE_RERANKER:
+        final_chunks = retrieved_chunks
+    else:
+        # Переранжирование с помощью RERANKER
+        try:
+            reranked_response = rerank_docs(
+                query=question,
+                documents=retrieved_chunks,
+                key=EMBEDDER_API_KEY
+            )
+
+            results = reranked_response.get('results')
+            sorted_results = sorted(results, key=lambda x: x['relevance_score'], reverse=True)
+            reranked_docs = [retrieved_chunks[res['index']] for res in sorted_results]
+            final_chunks = reranked_docs[:K_FINAL_CHUNKS]
+        except Exception as e:
+            print(f"Ошибка при переранжировании с помощью RERANKER: {e}")
+            print("Использую обычное ранжирование")
+            final_chunks = retrieved_chunks[:K_FINAL_CHUNKS]
+
+
+    context = "\n\n---\n\n".join(final_chunks)
 
     prompt = f"""Ты — умный и точный финансовый ассистент. Твоя задача — ответить на вопрос пользователя, основываясь на предоставленном ниже контексте. 
     Не используй свои собственные знания и не придумывай информацию. Не говори в ответе, на какие источники ты ссылаешься и вообще никак не упоминай в своём ответе контекст, только используй знания из контекста. 
@@ -277,8 +329,6 @@ def answer_question(question, index, all_chunks):
         return final_answer
     except Exception as e:
         print(f"Ошибка при генерации ответа на вопрос '{question}': {e}")
-        if response:
-            print(response)
         return "Произошла ошибка при генерации ответа."
 
 
@@ -333,8 +383,7 @@ if __name__ == "__main__":
     # Сохранение результатов
     questions_df['Ответы на вопрос'] = answers
     questions_df.to_csv('submission.csv', index=False, encoding='utf-8')
+    print("\n--- Все ответы сгенерированы. Файл submission.csv успешно сохранен. ---")
 
     # Сохранение логов
     token_logger.save_reports()
-
-    print("\n--- Все ответы сгенерированы. Файл submission.csv успешно сохранен. ---")

@@ -10,6 +10,7 @@ PROMPT_LEAKING_ANSWER = "вежливо сообщи"
 
 
 submission_files = [f for f in os.listdir(SUBMISSIONS_DIR) if f.endswith('.csv')]
+submission_files.sort()
 
 for filename in submission_files:
     filepath = os.path.join(SUBMISSIONS_DIR, filename)
