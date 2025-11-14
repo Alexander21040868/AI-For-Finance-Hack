@@ -20,14 +20,14 @@ open_router_client = OpenAI(base_url=BASE_URL, api_key=OPEN_ROUTER_API_KEY)
 
 if __name__ == "__main__":
     # Этап I: Инициализация частей агента
-    regulatory_consultant = RegulatoryConsultant(open_router_client,
-                                                 EMBEDDING_MODEL,
-                                                 GENERATION_MODEL,
-                                                 USE_LOCAL_RAG_FILES,
-                                                 SAVE_RAG_FILES,
-                                                 REGULATORY_CONSULTANT_FAISS_INDEX_PATH,
-                                                 REGULATORY_CONSULTANT_CHUNKS_PATH
-                                                 )
+    financial_consultant = RegulatoryConsultant(open_router_client,
+                                                EMBEDDING_MODEL,
+                                                GENERATION_MODEL,
+                                                USE_LOCAL_RAG_FILES,
+                                                SAVE_RAG_FILES,
+                                                REGULATORY_CONSULTANT_FAISS_INDEX_PATH,
+                                                REGULATORY_CONSULTANT_CHUNKS_PATH
+                                                )
 
     print("\n--- Инициализация частей агента завершена.")
 
