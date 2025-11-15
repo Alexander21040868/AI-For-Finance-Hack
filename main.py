@@ -11,6 +11,7 @@ from config import SAVE_RAG_FILES
 from config import USE_LOCAL_RAG_FILES
 from document_analyzer import DocumentAnalyzer
 from regulatory_consultant import RegulatoryConsultant
+from transaction_analyzer import TransactionAnalyzer
 from time_logger import timed, time_logger
 from token_logger import token_logger
 
@@ -80,6 +81,10 @@ document_analyzer = DocumentAnalyzer(open_router_client,
                                      GENERATION_MODEL
                                      )
 
+transaction_analyzer = TransactionAnalyzer(open_router_client,
+                                           GENERATION_MODEL
+                                           )
+
 # Функции, генерирующие ответ для каждого из инструментов
 TOOL_REGISTRY = {
     "TransactionAnalyzer": lambda x, y: None,
@@ -89,6 +94,7 @@ TOOL_REGISTRY = {
 
 
 def respond(user_prompt: str, file_paths: list[str]) -> str | None:
+    """Основная функция генерации ответа на промпт пользователя"""
     file_paths = [path for path in file_paths if os.path.exists(path)]
 
     if not file_paths:
