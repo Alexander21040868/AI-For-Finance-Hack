@@ -180,7 +180,7 @@ class RegulatoryConsultant:
             return question
 
     @timed
-    def answer_question(self, question, documents):
+    def answer_question(self, question):
         """
         Принимает вопрос, РАСШИРЯЕТ его, генерирует гипотетический ответ на вопрос,
         находит релевантный контекст и генерирует ответ.

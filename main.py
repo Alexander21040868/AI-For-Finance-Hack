@@ -25,7 +25,7 @@ GENERATION_MODEL = "google/gemini-2.5-flash-lite"
 open_router_client = OpenAI(base_url=BASE_URL, api_key=OPEN_ROUTER_API_KEY)
 
 @timed
-def choose_tool(user_prompt: str, documents: list[dict[str, str]] | None) -> str:
+def choose_tool(user_prompt: str, documents: list[dict[str, str]] | None) -> dict[str, str]:
     """По запросу пользователя определяет, каким инструментом лучше отвечать на его запрос"""
     print("\nЗапуск роутера для выбора инструмента...")
 
@@ -68,6 +68,14 @@ def choose_tool(user_prompt: str, documents: list[dict[str, str]] | None) -> str
     return chosen_tool
 
 # Инициализация базовых инструментов
+transaction_analyzer = TransactionAnalyzer(open_router_client,
+                                           GENERATION_MODEL
+                                           )
+
+document_analyzer = DocumentAnalyzer(open_router_client,
+                                     GENERATION_MODEL
+                                     )
+
 regulatory_consultant = RegulatoryConsultant(open_router_client,
                                             EMBEDDING_MODEL,
                                             GENERATION_MODEL,
@@ -77,21 +85,8 @@ regulatory_consultant = RegulatoryConsultant(open_router_client,
                                             REGULATORY_CONSULTANT_CHUNKS_PATH
                                             )
 
-document_analyzer = DocumentAnalyzer(open_router_client,
-                                     GENERATION_MODEL
-                                     )
-
-transaction_analyzer = TransactionAnalyzer(open_router_client,
-                                           GENERATION_MODEL
-                                           )
-
-# Функции, генерирующие ответ для каждого из инструментов
-TOOL_REGISTRY = {
-    "TransactionAnalyzer": lambda x, y: None,
-    "DocumentAnalyzer": document_analyzer.generate_summary,
-    "RegulatoryConsultant": regulatory_consultant.answer_question,
-}
-
+# Набор возможных инструментов
+TOOL_REGISTRY = {"TransactionAnalyzer", "DocumentAnalyzer", "RegulatoryConsultant"}
 
 def respond(user_prompt: str, file_paths: list[str]) -> str | None:
     """Основная функция генерации ответа на промпт пользователя"""
@@ -107,10 +102,12 @@ def respond(user_prompt: str, file_paths: list[str]) -> str | None:
 
     final_result = None
     if tool_name in TOOL_REGISTRY:
-        selected_tool = TOOL_REGISTRY[tool_name]
-
-        # Инструмент получает оригинальный промпт и весь извлеченный текст из документов
-        final_result = selected_tool(user_prompt, extracted_documents_text)
+        if tool_name == "RegulatoryConsultant":
+            final_result = regulatory_consultant.answer_question(user_prompt)
+        elif tool_name == "DocumentAnalyzer":
+            final_result = document_analyzer.generate_summary(extracted_documents_text)
+        elif tool_name == "TransactionAnalyzer":
+            final_result = transaction_analyzer.analyze_transactions(file_paths[0])
     else:
         print(f"\n[Ошибка]: Роутер вернул неизвестный инструмент '{tool_name}'")
 
