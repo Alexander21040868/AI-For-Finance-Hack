@@ -180,7 +180,7 @@ class RegulatoryConsultant:
             return question
 
     @timed
-    def answer_question(self, question, index, all_chunks):
+    def answer_question(self, question, documents):
         """
         Принимает вопрос, РАСШИРЯЕТ его, генерирует гипотетический ответ на вопрос,
         находит релевантный контекст и генерирует ответ.
@@ -197,12 +197,12 @@ class RegulatoryConsultant:
 
         retrieved_indices = set()
         k_retrieval = RETRIEVAL_K_FOR_RERANK if USE_RERANKER else K_FINAL_CHUNKS
-        _, I = index.search(query_embeddings, k_retrieval)
+        _, I = self.faiss_index.search(query_embeddings, k_retrieval)
         for indices_per_query in I:
             for idx in indices_per_query:
                 retrieved_indices.add(idx)
 
-        retrieved_chunks = [all_chunks[i] for i in retrieved_indices]
+        retrieved_chunks = [self.corpus_chunks[i] for i in retrieved_indices]
 
         # Убрал использование reranker
         final_chunks = retrieved_chunks
