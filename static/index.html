@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ФинПульс - AI для финансов</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <h1>ФинПульс</h1>
+            </div>
+            <p class="subtitle">AI-помощник для бизнеса</p>
+        </header>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-button active" data-tab="transactions">
+                Анализ транзакций
+            </button>
+            <button class="tab-button" data-tab="documents">
+                Анализ документов
+            </button>
+            <button class="tab-button" data-tab="consultant">
+                Налоговый консультант
+            </button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Transaction Analyzer -->
+            <div id="transactions" class="tab-pane active">
+                <div class="card">
+                    <h2>Анализатор транзакций</h2>
+                    <p class="description">
+                        Загрузите банковскую выписку в формате CSV или XLSX. 
+                        Система автоматически категоризирует транзакции и рассчитает налоги.
+                    </p>
+                    
+                    <form id="transactionForm" class="form">
+                        <div class="form-group">
+                            <label for="transactionFile">Файл с транзакциями</label>
+                            <input type="file" id="transactionFile" name="file" 
+                                   accept=".csv,.xlsx" required>
+                            <small>Поддерживаемые форматы: CSV, XLSX</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Режим налогообложения</label>
+                            <div class="tax-mode-buttons">
+                                <input type="radio" id="usn6" name="tax_mode" value="УСН_доходы" checked hidden>
+                                <label for="usn6" class="tax-button">
+                                    <div class="tax-button-title">УСН Доходы</div>
+                                    <div class="tax-button-rate">6%</div>
+                                </label>
+                                
+                                <input type="radio" id="usn15" name="tax_mode" value="УСН_доходы_минус_расходы" hidden>
+                                <label for="usn15" class="tax-button">
+                                    <div class="tax-button-title">УСН Доходы минус расходы</div>
+                                    <div class="tax-button-rate">15%</div>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <span class="btn-text">Проанализировать</span>
+                            <span class="loader hidden"></span>
+                        </button>
+                    </form>
+                    
+                    <div id="transactionResult" class="result hidden"></div>
+                </div>
+            </div>
+
+            <!-- Document Analyzer -->
+            <div id="documents" class="tab-pane">
+                <div class="card">
+                    <h2>Анализатор документов</h2>
+                    <p class="description">
+                        Загрузите договор, акт или счёт для анализа рисков и выявления 
+                        критических моментов, на которые стоит обратить внимание.
+                    </p>
+                    
+                    <form id="documentForm" class="form">
+                        <div class="form-group">
+                            <label for="documentFile">Документ для анализа</label>
+                            <input type="file" id="documentFile" name="file" 
+                                   accept=".pdf,.docx,.jpg,.jpeg,.png" required>
+                            <small>Поддерживаемые форматы: PDF, DOCX, JPG, PNG</small>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <span class="btn-text">Проанализировать</span>
+                            <span class="loader hidden"></span>
+                        </button>
+                    </form>
+                    
+                    <div id="documentResult" class="result hidden"></div>
+                </div>
+            </div>
+
+            <!-- Regulatory Consultant -->
+            <div id="consultant" class="tab-pane">
+                <div class="card">
+                    <h2>Налоговый консультант</h2>
+                    <p class="description">
+                        Задайте вопрос по налогообложению, бухгалтерии или законодательству РФ.
+                        AI-консультант предоставит подробный ответ на основе актуальной нормативной базы.
+                    </p>
+                    
+                    <form id="consultantForm" class="form">
+                        <div class="form-group">
+                            <label for="question">Ваш вопрос</label>
+                            <textarea id="question" name="question" rows="4" 
+                                      placeholder="Например: Нужно ли пробивать чек, если клиент оплатил на расчётный счёт?"
+                                      required></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <span class="btn-text">Получить ответ</span>
+                            <span class="loader hidden"></span>
+                        </button>
+                    </form>
+                    
+                    <div id="consultantResult" class="result hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>ФинПульс © 2025 | AI For Finance Hack</p>
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
+

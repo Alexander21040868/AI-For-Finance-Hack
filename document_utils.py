@@ -4,6 +4,8 @@ from PIL import Image
 import io
 from pdf2image import convert_from_path
 from openai import OpenAI
+from typing import Dict, List
+import docx
 
 from token_logger import token_logger
 from time_logger import timed
@@ -18,12 +20,26 @@ def encode_image_to_base64(image: Image.Image) -> str:
 @timed
 def extract_text_from_file(open_router_client: OpenAI,
                            generation_model: str,
-                           file_path: str) -> dict[str, str]:
+                           file_path: str) -> Dict[str, str]:
     """Извлекает текст из одного файла (PDF или изображение) с помощью LLM."""
     print(f"  - Обработка файла: {os.path.basename(file_path)}")
 
-    # === ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ PDF ===
-    if file_path.lower().endswith('.pdf'):
+    # === ЛОГИКА ДЛЯ DOCX ===
+    if file_path.lower().endswith('.docx'):
+        try:
+            doc = docx.Document(file_path)
+            full_text = []
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    full_text.append(para.text)
+            
+            text = "\n".join(full_text)
+            return {"filename": os.path.basename(file_path), "text": text}
+        except Exception as e:
+            return {"filename": os.path.basename(file_path), "error": f"Ошибка при обработке DOCX: {e}"}
+    
+    # === ЛОГИКА ДЛЯ PDF ===
+    elif file_path.lower().endswith('.pdf'):
         try:
             # Конвертируем все страницы PDF в изображения
             images = convert_from_path(file_path)
@@ -82,11 +98,11 @@ def extract_text_from_file(open_router_client: OpenAI,
             return {"filename": os.path.basename(file_path), "error": str(e)}
 
 @timed
-def batch_extract_text(file_paths: list[str]) -> list[dict[str, str]]:
+def batch_extract_text(file_paths: List[str], open_router_client=None, generation_model=None) -> List[Dict[str, str]]:
     """Принимает список путей к файлам и извлекает текст из каждого."""
     print("Запуск извлечения текста из документов...")
     extracted_data = []
     for path in file_paths:
-        extracted_data.append(extract_text_from_file(path))
+        extracted_data.append(extract_text_from_file(open_router_client, generation_model, path))
     print("Извлечение текста завершено.")
     return extracted_data

@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения (API ключи) из файла .env
 load_dotenv()
 
-# Ключ для доступа к API
-OPEN_ROUTER_API_KEY = os.getenv("OPEN_ROUTER_API_KEY")
+# Ключ для доступа к API (поддержка обоих вариантов названия)
+OPEN_ROUTER_API_KEY = os.getenv("OPEN_ROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY")
 
 # Базовый URL для всех запросов
 BASE_URL = "https://openrouter.ai/api/v1"

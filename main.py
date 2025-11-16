@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import json
+from typing import Optional, List, Dict
 
 from openai import OpenAI
 
@@ -25,7 +26,7 @@ GENERATION_MODEL = "google/gemini-2.5-flash-lite"
 open_router_client = OpenAI(base_url=BASE_URL, api_key=OPEN_ROUTER_API_KEY)
 
 @timed
-def choose_tool(user_prompt: str, documents: list[dict[str, str]] | None) -> dict[str, str]:
+def choose_tool(user_prompt: str, documents: Optional[List[Dict[str, str]]]) -> Dict[str, str]:
     """По запросу пользователя определяет, каким инструментом лучше отвечать на его запрос"""
     print("\nЗапуск роутера для выбора инструмента...")
 
@@ -88,7 +89,7 @@ regulatory_consultant = RegulatoryConsultant(open_router_client,
 # Набор возможных инструментов
 TOOL_REGISTRY = {"TransactionAnalyzer", "DocumentAnalyzer", "RegulatoryConsultant"}
 
-def respond(user_prompt: str, file_paths: list[str]) -> str | None:
+def respond(user_prompt: str, file_paths: List[str]) -> Optional[str]:
     """Основная функция генерации ответа на промпт пользователя"""
     file_paths = [path for path in file_paths if os.path.exists(path)]
 

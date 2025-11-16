@@ -6,7 +6,7 @@ from time_logger import timed
 from token_logger import token_logger
 
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Dict
 
 
 CATEGORIES = [
@@ -74,7 +74,7 @@ class TransactionAnalyzer:
         return df
 
     @timed
-    def categorize_transactions(self, texts: list[str]) -> list[str]:
+    def categorize_transactions(self, texts: List[str]) -> List[str]:
         """Отправляет транзакции на классификацию в LLM."""
         results = []
 
@@ -96,7 +96,7 @@ class TransactionAnalyzer:
                 results.append(msg)
 
                 if hasattr(response, "usage"):
-                    token_logger.log(
+                    token_logger.log_usage(
                         response.usage,
                         self.generation_model,
                         "categorize_transaction",
@@ -110,7 +110,7 @@ class TransactionAnalyzer:
         return results
 
     @timed
-    async def analyze_transactions(self, file, tax_mode: str = "УСН_доходы") -> dict | None:
+    async def analyze_transactions(self, file, tax_mode: str = "УСН_доходы") -> Optional[Dict]:
         """Парсинг, классификация, расчёт налогов."""
         try:
             content = await file.read()
@@ -119,7 +119,7 @@ class TransactionAnalyzer:
             if "Назначение платежа" not in df.columns:
                 raise Exception("Колонка 'Назначение платежа' не найдена")
 
-            df["Категория"] = await self.categorize_transactions(
+            df["Категория"] = self.categorize_transactions(
                 df["Назначение платежа"].tolist(),
             )
 

@@ -1,4 +1,4 @@
-
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,7 +7,12 @@ __pycache__/
 *.so
 *.dll
 *.dylib
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+MANIFEST
 
+# Virtual environments
 .env
 .env.*
 .venv/
@@ -15,19 +20,32 @@ venv/
 env/
 ENV/
 
-
+# Security & Secrets
 *.key
 *.pem
 *.crt
-*.json
 secret*.txt
+# But allow example configs
+!env.example
 
+# Logs
 logs/
 *.log
+server.log
+
+# Cache & Temporary files
 *.tmp
 *.bak
 .cache/
 __cache__/
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+Icon?
+
+# ML/AI artifacts
+artefacts/
 checkpoints/
 *.checkpoint
 *.ckpt
@@ -35,31 +53,38 @@ checkpoints/
 *.npz
 *.npy
 
+# User uploads
+uploads/
+# But keep example files
+!example_transactions.csv
+
+# Data files (user-generated)
 answers.csv
 *.xlsx
 *.xls
 *.tsv
 *.zip
 *.gz
+# But allow example data
+!train_data.csv
 
+# IDE
 .idea/
 .vscode/
 *.iml
 *.sublime-project
 *.sublime-workspace
-.DS_Store
-Thumbs.db
-desktop.ini
 
+# Build
 build/
 dist/
-*.egg-info/
-*.egg
-pip-wheel-metadata/
-MANIFEST
 
+# Jupyter
 .ipynb_checkpoints/
 *.ipynb~
 
-ehthumbs.db
-Icon?
+# Node.js (if needed in future)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
