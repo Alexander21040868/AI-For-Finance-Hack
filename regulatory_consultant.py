@@ -1,4 +1,5 @@
 import os
+import json
 import pickle
 
 import faiss
@@ -56,7 +57,8 @@ class RegulatoryConsultant:
             print("Артефакты RAG успешно загружены.")
         else:
             print("RAG-артефакты будут сгенерированы с нуля.")
-            faiss_index, corpus_chunks = self._generate_new_rag_artefacts('./train_data.csv')
+            from config import RAW_DOCUMENTS_PATH
+            faiss_index, corpus_chunks = self._generate_new_rag_artefacts(RAW_DOCUMENTS_PATH)
             self.faiss_index = faiss_index
             self.corpus_chunks = corpus_chunks
 
@@ -96,29 +98,51 @@ class RegulatoryConsultant:
     def _generate_new_rag_artefacts(self, file_path):
         """
         Основная функция для создания артефактов RAG:
-        1. Загружает и подготавливает данные.
+        1. Загружает и подготавливает данные из JSONL файла.
         2. Разбивает текст на чанки.
         3. Создает векторные представления (эмбеддинги) для чанков.
         4. Создает и наполняет поисковый индекс FAISS.
         Возвращает: индекс FAISS и список всех текстовых чанков.
         """
-        print("Шаг 1: Загрузка и подготовка данных...")
-        df = pd.read_csv(file_path)
-        df['combined_text'] = ("Тэги: " + df['tags'].fillna('').astype(str) +
-                               ". Аннотация: " + df['annotation'].fillna('').astype(str) +
-                               ". Текст: " + df['text'].fillna('').astype(str))
+        print("Шаг 1: Загрузка и подготовка данных из JSONL...")
+        documents = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    documents.append(json.loads(line))
+
+        print(f"Загружено {len(documents)} документов из {file_path}")
 
         print("Шаг 2: Разбиение документов на чанки...")
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
         all_chunks = []
-        for _, row in df.iterrows():
-            metadata_prefix = f"Источник: {row['id']}. Тэги: {row['tags']}. "
-
-            annotation_text = str(row['annotation']) if pd.notna(row['annotation']) else ""
-            main_text = str(row['text']) if pd.notna(row['text']) else ""
-            text_to_split = annotation_text + "\n\n" + main_text
-
-            chunks = text_splitter.split_text(text_to_split)
+        
+        for doc in documents:
+            # Формируем метаданные из полей документа
+            doc_id = doc.get('doc_id', 'unknown')
+            source_name = doc.get('source_name', '')
+            source_type = doc.get('source_type', '')
+            title = doc.get('title', '')
+            metadata_info = doc.get('metadata', {})
+            
+            # Формируем префикс с метаданными
+            metadata_prefix = f"Источник: {source_name} ({source_type}). "
+            if title:
+                metadata_prefix += f"Название: {title}. "
+            if metadata_info:
+                chapter = metadata_info.get('chapter', '')
+                article = metadata_info.get('article_number', '')
+                if chapter:
+                    metadata_prefix += f"Глава: {chapter}. "
+                if article:
+                    metadata_prefix += f"Статья: {article}. "
+            
+            # Основной текст для разбиения
+            content = doc.get('content', '')
+            if not content:
+                continue
+                
+            chunks = text_splitter.split_text(content)
             for chunk in chunks:
                 all_chunks.append(metadata_prefix + chunk)
 
