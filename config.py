@@ -17,6 +17,7 @@ LOGGING_TIME_USAGE = True  # Логгировать использование �
 # Файлы для артефактов
 REGULATORY_CONSULTANT_FAISS_INDEX_PATH = "artefacts/regulatory_consultant_faiss_index.bin"
 REGULATORY_CONSULTANT_CHUNKS_PATH = "artefacts/corpus_chunks.pkl"
+RAW_DOCUMENTS_PATH = "raw_documents.jsonl"
 
 # Использование локальных файлов RAG
 USE_LOCAL_RAG_FILES = True
