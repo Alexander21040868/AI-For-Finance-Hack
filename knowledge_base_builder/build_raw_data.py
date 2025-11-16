@@ -2,6 +2,9 @@ import re
 import json
 from pathlib import Path
 from tqdm import tqdm
+import time
+
+from .scrapers import article_scraper
 
 # --- Конфигурация ---
 # Определяем пути относительно текущего файла
@@ -37,6 +40,14 @@ SOURCE_FILES = [
         "source_url": "https://www.consultant.ru/document/cons_doc_LAW_311977/"
     }
 ]
+
+ARTICLE_URLS = ['https://www.klerk.ru/blogs/fedresurs/668319/', 'https://www.klerk.ru/blogs/cfu/668386/',
+                'https://www.klerk.ru/user/2615061/668858/', 'https://www.klerk.ru/blogs/pebguru/668723/',
+                'https://www.klerk.ru/buh/news/662547/', 'https://www.klerk.ru/blogs/moedelo/668724/',
+                'https://www.klerk.ru/buh/news/668392/',
+                'https://www.klerk.ru/user/2615061/668858/',
+                'https://www.klerk.ru/blogs/qugo/668598/',
+                'https://www.klerk.ru/user/2485134/667497/', 'https://www.klerk.ru/user/2405800/667914/']
 
 
 # --- Логика парсинга ---
@@ -131,7 +142,8 @@ def main():
 
     all_docs = []
 
-    for file_info in tqdm(SOURCE_FILES, desc="Обработка файлов"):
+    print("\n--- Этап 1: Обработка локальных файлов с законами ---")
+    for file_info in tqdm(SOURCE_FILES, desc="Обработка файлов законов"):
         filepath = file_info['path']
         if not filepath.exists():
             print(f"ВНИМАНИЕ: Файл не найден, пропускаю: {filepath}")
@@ -141,6 +153,17 @@ def main():
         articles = parse_text_file(filepath, file_info)
         all_docs.extend(articles)
         # print(f"Найдено статей: {len(articles)}")
+
+    print(f"\n--- Этап 2: Парсинг {len(ARTICLE_URLS)} статей с веб-сайтов ---")
+    for url in tqdm(ARTICLE_URLS, desc="Парсинг статей"):
+        article_data = article_scraper.scrape_article(url)
+        if article_data:
+            # Приводим к той же структуре, что и у законов
+            article_data['doc_id'] = f"article_{len(all_docs) + 1}"
+            article_data['metadata'] = {}  # У статей нет глав/номеров
+            all_docs.append(article_data)
+
+        time.sleep(1)
 
     print(f"\n--- Всего найдено и обработано статей: {len(all_docs)} ---")
 
