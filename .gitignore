@@ -32,6 +32,8 @@ secret*.txt
 logs/
 *.log
 server.log
+history.json
+transaction_history.jsonl
 
 # Cache & Temporary files
 *.tmp

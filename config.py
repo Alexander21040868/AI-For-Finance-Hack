@@ -22,3 +22,14 @@ RAW_DOCUMENTS_PATH = "raw_documents.jsonl"
 # Использование локальных файлов RAG
 USE_LOCAL_RAG_FILES = True
 SAVE_RAG_FILES = True
+
+# Параметры для TransactionAnalyzer
+TRANSACTION_ANALYZER_CONFIG = {
+    "batch_size": 20,  # Количество транзакций в одном батче
+    "max_retries": 3,  # Максимальное количество попыток при ошибке API
+    "retry_delay": 1.0,  # Задержка между попытками (секунды)
+    "timeout": 30.0,  # Таймаут для LLM запроса (секунды)
+    "new_counterparty_threshold": 10000,  # Порог суммы для уведомления о новом контрагенте
+    "outlier_sigma_threshold": 2.5,  # Порог для определения outliers (стандартные отклонения) - снижен для более чувствительного обнаружения
+    "cac_warning_threshold": 0.3,  # Порог для предупреждения о высоком CAC
+}

@@ -7,8 +7,9 @@ import os
 import io
 import json
 from typing import Optional
+from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -26,6 +27,14 @@ from regulatory_consultant import RegulatoryConsultant
 from document_utils import batch_extract_text
 from time_logger import time_logger
 from token_logger import token_logger
+from history_manager import history_manager
+from export_utils import (
+    export_transactions_to_excel,
+    export_document_analysis_to_pdf,
+    export_consultant_to_markdown,
+    export_history_to_json,
+    export_history_to_excel
+)
 
 # === КОНФИГУРАЦИЯ ===
 EMBEDDING_MODEL = "openai/text-embedding-3-small"
@@ -149,10 +158,21 @@ async def analyze_transactions_endpoint(
         time_logger.save_reports()
         token_logger.save_reports()
         
+        # Сохраняем в историю
+        history_manager.add_entry(
+            service_type="transactions",
+            input_data={"filename": file.filename, "tax_mode": tax_mode},
+            result=result
+        )
+        
         return result
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при анализе транзакций: {str(e)}")
+        import traceback
+        error_detail = f"Ошибка при анализе транзакций: {str(e)}"
+        print(f"[ERROR] {error_detail}")
+        print(f"[DEBUG] Traceback:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @app.post("/api/analyze-document")
@@ -196,11 +216,22 @@ async def analyze_document_endpoint(
         time_logger.save_reports()
         token_logger.save_reports()
         
-        return {
+        result = {
             "filename": file.filename,
             "analysis": analysis
         }
         
+        # Сохраняем в историю
+        history_manager.add_entry(
+            service_type="documents",
+            input_data={"filename": file.filename},
+            result=result
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при анализе документа: {str(e)}")
 
@@ -225,10 +256,19 @@ async def ask_question_endpoint(
         time_logger.save_reports()
         token_logger.save_reports()
         
-        return {
+        result = {
             "question": question,
             "answer": answer
         }
+        
+        # Сохраняем в историю
+        history_manager.add_entry(
+            service_type="consultant",
+            input_data={"question": question},
+            result=result
+        )
+        
+        return result
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при обработке вопроса: {str(e)}")
@@ -260,6 +300,130 @@ async def get_time_logs():
         return {"files": log_files}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/api/history")
+async def get_history(service_type: Optional[str] = None, limit: int = 50):
+    """
+    Получить историю запросов
+    
+    - **service_type**: Фильтр по типу ('transactions', 'documents', 'consultant')
+    - **limit**: Максимальное количество записей (по умолчанию 50)
+    """
+    try:
+        history = history_manager.get_history(service_type=service_type, limit=limit)
+        return {"history": history, "count": len(history)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении истории: {str(e)}")
+
+
+@app.delete("/api/history")
+async def clear_history():
+    """Очистить историю запросов"""
+    try:
+        history_manager.clear_history()
+        return {"message": "История очищена"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при очистке истории: {str(e)}")
+
+
+@app.post("/api/export/transactions")
+async def export_transactions(result_data: str = Form(...)):
+    """
+    Экспортировать результаты анализа транзакций в Excel
+    
+    - **result_data**: JSON строка с результатами анализа
+    """
+    try:
+        result = json.loads(result_data)
+        excel_file = export_transactions_to_excel(result)
+        
+        filename = f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        excel_file.seek(0)
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при экспорте: {str(e)}")
+
+
+@app.post("/api/export/document")
+async def export_document(result_data: str = Form(...)):
+    """
+    Экспортировать результаты анализа документа в текстовый формат
+    
+    - **result_data**: JSON строка с результатами анализа
+    """
+    try:
+        result = json.loads(result_data)
+        markdown = export_document_analysis_to_pdf(result)
+        
+        from fastapi.responses import Response
+        filename = f"document_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        return Response(
+            content=markdown,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при экспорте: {str(e)}")
+
+
+@app.post("/api/export/consultant")
+async def export_consultant(result_data: str = Form(...)):
+    """
+    Экспортировать ответ консультанта в markdown
+    
+    - **result_data**: JSON строка с результатами
+    """
+    try:
+        result = json.loads(result_data)
+        markdown = export_consultant_to_markdown(result)
+        
+        from fastapi.responses import Response
+        filename = f"consultant_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        return Response(
+            content=markdown,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при экспорте: {str(e)}")
+
+
+@app.get("/api/export/history")
+async def export_history(format: str = "json", service_type: Optional[str] = None):
+    """
+    Экспортировать историю запросов
+    
+    - **format**: Формат экспорта ('json' или 'excel')
+    - **service_type**: Фильтр по типу сервиса (опционально)
+    """
+    try:
+        history = history_manager.get_history(service_type=service_type, limit=1000)
+        
+        if format == "excel":
+            excel_file = export_history_to_excel(history)
+            filename = f"history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            excel_file.seek(0)
+            return StreamingResponse(
+                excel_file,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        else:
+            json_data = export_history_to_json(history)
+            from fastapi.responses import Response
+            filename = f"history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            return Response(
+                content=json_data,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при экспорте истории: {str(e)}")
 
 
 if __name__ == "__main__":

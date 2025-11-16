@@ -27,6 +27,9 @@
             <button class="tab-button" data-tab="consultant">
                 Юридический консультант
             </button>
+            <button class="tab-button" data-tab="history">
+                История
+            </button>
         </div>
 
         <!-- Tab Content -->
@@ -126,6 +129,63 @@
                     </form>
                     
                     <div id="consultantResult" class="result hidden"></div>
+                </div>
+            </div>
+
+            <!-- History -->
+            <div id="history" class="tab-pane">
+                <div class="card">
+                    <h2>История запросов</h2>
+                    <p class="description">
+                        Просмотр и экспорт истории всех выполненных запросов к сервисам ФинПульс.
+                    </p>
+                    
+                    <div class="form-group">
+                        <label>Фильтр по сервису</label>
+                        <div class="history-filter-dropdown">
+                            <button type="button" class="history-filter-trigger" id="historyFilterTrigger">
+                                <span class="filter-trigger-text">Все сервисы</span>
+                                <svg class="filter-arrow" width="12" height="8" viewBox="0 0 12 8" fill="none">
+                                    <path d="M1 1L6 6L11 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <div class="history-filter-menu" id="historyFilterMenu">
+                                <input type="radio" id="filter-all" name="historyFilter" value="" checked hidden>
+                                <label for="filter-all" class="history-filter-option" data-label="Все сервисы">
+                                    Все сервисы
+                                </label>
+                                
+                                <input type="radio" id="filter-transactions" name="historyFilter" value="transactions" hidden>
+                                <label for="filter-transactions" class="history-filter-option" data-label="Анализ транзакций">
+                                    Анализ транзакций
+                                </label>
+                                
+                                <input type="radio" id="filter-documents" name="historyFilter" value="documents" hidden>
+                                <label for="filter-documents" class="history-filter-option" data-label="Анализ документов">
+                                    Анализ документов
+                                </label>
+                                
+                                <input type="radio" id="filter-consultant" name="historyFilter" value="consultant" hidden>
+                                <label for="filter-consultant" class="history-filter-option" data-label="Юридический консультант">
+                                    Юридический консультант
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+                        <button id="loadHistoryBtn" class="btn btn-primary" style="flex: 1;">
+                            <span class="btn-text">Загрузить историю</span>
+                        </button>
+                        <button id="exportHistoryBtn" class="btn" style="flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                            <span class="btn-text">Экспорт истории</span>
+                        </button>
+                        <button id="clearHistoryBtn" class="btn" style="flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--accent-color);">
+                            <span class="btn-text">Очистить</span>
+                        </button>
+                    </div>
+                    
+                    <div id="historyResult" class="result hidden"></div>
                 </div>
             </div>
         </div>
