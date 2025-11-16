@@ -4,6 +4,7 @@ from pathlib import Path
 from tqdm import tqdm
 import time
 
+from knowledge_base_builder.scrapers.article_scraper import get_relevant_article_urls
 from .scrapers import article_scraper
 
 # --- Конфигурация ---
@@ -41,13 +42,14 @@ SOURCE_FILES = [
     }
 ]
 
-ARTICLE_URLS = ['https://www.klerk.ru/blogs/fedresurs/668319/', 'https://www.klerk.ru/blogs/cfu/668386/',
-                'https://www.klerk.ru/user/2615061/668858/', 'https://www.klerk.ru/blogs/pebguru/668723/',
-                'https://www.klerk.ru/buh/news/662547/', 'https://www.klerk.ru/blogs/moedelo/668724/',
-                'https://www.klerk.ru/buh/news/668392/',
-                'https://www.klerk.ru/user/2615061/668858/',
-                'https://www.klerk.ru/blogs/qugo/668598/',
-                'https://www.klerk.ru/user/2485134/667497/', 'https://www.klerk.ru/user/2405800/667914/']
+# ARTICLE_URLS = ['https://www.klerk.ru/blogs/fedresurs/668319/', 'https://www.klerk.ru/blogs/cfu/668386/',
+#                 'https://www.klerk.ru/user/2615061/668858/', 'https://www.klerk.ru/blogs/pebguru/668723/',
+#                 'https://www.klerk.ru/buh/news/662547/', 'https://www.klerk.ru/blogs/moedelo/668724/',
+#                 'https://www.klerk.ru/buh/news/668392/',
+#                 'https://www.klerk.ru/user/2615061/668858/',
+#                 'https://www.klerk.ru/blogs/qugo/668598/',
+#                 'https://www.klerk.ru/user/2485134/667497/', 'https://www.klerk.ru/user/2405800/667914/']
+ARTICLE_URLS = get_relevant_article_urls()
 
 
 # --- Логика парсинга ---
