@@ -1821,13 +1821,12 @@ function createWaterfallChart(plReport) {
     const operatingExpenses = plReport.operating_expenses || 0;
     const operatingProfit = plReport.operating_profit || 0;
     
-    // Для waterfall нужно рассчитать накопительные значения
     const data = [
-        revenue,                    // Выручка (база)
-        -cogs,                      // COGS (отрицательное)
-        grossProfit - revenue,      // Валовая прибыль (относительно выручки)
-        -operatingExpenses,          // Операционные расходы (отрицательное)
-        operatingProfit - grossProfit // EBITDA (относительно валовой прибыли)
+        revenue,            // Выручка
+        -cogs,              // COGS (отрицательное значение)
+        grossProfit,        // Валовая прибыль
+        -operatingExpenses, // Операционные расходы
+        operatingProfit     // EBITDA
     ];
     
     const labels = ['Выручка', 'COGS', 'Валовая прибыль', 'Операционные расходы', 'EBITDA'];

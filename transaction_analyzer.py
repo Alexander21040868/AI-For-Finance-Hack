@@ -1175,6 +1175,7 @@ class TransactionAnalyzer:
         tax_income_mode = annual_income_forecast * 0.06
         tax_scenarios.append({
             "mode": "УСН 'доходы' (6%)",
+            "internal_mode": "УСН_доходы",
             "annual_income": annual_income_forecast,
             "annual_expenses": annual_expenses_forecast,
             "tax": tax_income_mode,
@@ -1186,6 +1187,7 @@ class TransactionAnalyzer:
         tax_expenses_mode = taxable_base * 0.15
         tax_scenarios.append({
             "mode": "УСН 'доходы минус расходы' (15%)",
+            "internal_mode": "УСН_доходы_минус_расходы",
             "annual_income": annual_income_forecast,
             "annual_expenses": annual_expenses_forecast,
             "tax": tax_expenses_mode,
@@ -1194,7 +1196,10 @@ class TransactionAnalyzer:
         
         # Находим оптимальный режим
         optimal_scenario = min(tax_scenarios, key=lambda x: x["tax"])
-        current_scenario = next((s for s in tax_scenarios if s["mode"].startswith(current_mode.split("_")[0])), tax_scenarios[0])
+        current_scenario = next(
+            (s for s in tax_scenarios if s.get("internal_mode") == current_mode),
+            tax_scenarios[0]
+        )
         
         potential_savings = current_scenario["tax"] - optimal_scenario["tax"]
         
