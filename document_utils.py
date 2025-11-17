@@ -66,6 +66,8 @@ def extract_text_from_file(open_router_client: OpenAI,
                 )
 
                 page_text = response.choices[0].message.content
+                token_logger.log_usage(response.usage, generation_model, "ocr",
+                                       f"{page_text=}")
                 full_text_from_pdf += f"\n--- Страница {i + 1} ---\n" + page_text
 
             return {"filename": os.path.basename(file_path), "text": full_text_from_pdf}
@@ -91,7 +93,7 @@ def extract_text_from_file(open_router_client: OpenAI,
                 max_tokens=4000
             )
             text = response.choices[0].message.content
-            token_logger.log_usage(response.usage, generation_model, "generate_doc_summary",
+            token_logger.log_usage(response.usage, generation_model, "ocr",
                                    f"{text=}")
             return {"filename": os.path.basename(file_path), "text": text}
         except Exception as e:

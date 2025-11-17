@@ -1318,10 +1318,8 @@ if (historyFilterTrigger && historyFilterMenu) {
             const label = document.querySelector(`label[for="${this.id}"]`);
             if (label) {
                 const labelText = label.getAttribute('data-label') || label.textContent.trim();
-                const triggerText = document.querySelector('.filter-trigger-text');
-                if (triggerText) {
-                    triggerText.textContent = labelText;
-                }
+                 const triggerText = historyFilterTrigger.querySelector('.filter-trigger-text');
+                if (triggerText) triggerText.textContent = labelText;
                 
                 // Закрываем меню после выбора
                 historyFilterMenu.classList.remove('open');
@@ -1401,10 +1399,8 @@ window.addEventListener('load', async () => {
         const label = document.querySelector(`label[for="${checkedRadio.id}"]`);
         if (label) {
             const labelText = label.getAttribute('data-label') || label.textContent.trim();
-            const triggerText = document.querySelector('.filter-trigger-text');
-            if (triggerText) {
-                triggerText.textContent = labelText;
-            }
+            const triggerText = historyFilterTrigger.querySelector('.filter-trigger-text');
+            if (triggerText) triggerText.textContent = labelText;
         }
     }
 });
