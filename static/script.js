@@ -616,6 +616,9 @@ async function loadHistory() {
         
         const history = data.history || [];
         
+        // Сохраняем историю в глобальную переменную для доступа из модального окна
+        currentHistory = history.slice().reverse();
+        
         if (history.length === 0) {
             resultDiv.innerHTML = '<p>История пуста</p>';
             resultDiv.classList.remove('hidden');
@@ -643,7 +646,7 @@ async function loadHistory() {
                         <span class="history-time">${timestamp}</span>
                     </div>
                     <div class="history-content">
-                        ${formatHistoryEntry(entry)}
+                        ${formatHistoryEntry(entry, index)}
                     </div>
                 </div>
             `;
@@ -661,30 +664,196 @@ async function loadHistory() {
     }
 }
 
-function formatHistoryEntry(entry) {
+function formatHistoryEntry(entry, index) {
     const input = entry.input || {};
     const result = entry.result || {};
     
     if (entry.service_type === 'consultant') {
+        const answer = result.answer || '';
+        const isLong = answer.length > 200;
+        const preview = isLong ? answer.substring(0, 200) + '...' : answer;
         return `
             <div><strong>Вопрос:</strong> ${escapeHtml(input.question || '')}</div>
-            <div style="margin-top: 8px;"><strong>Ответ:</strong> ${escapeHtml(result.answer || '').substring(0, 200)}...</div>
+            <div style="margin-top: 8px;"><strong>Ответ:</strong> ${isLong ? convertMarkdownToHtml(preview) : convertMarkdownToHtml(answer)}</div>
+            ${isLong ? `<button onclick="showFullAnswer(${index}, 'consultant')" class="btn-show-full" style="margin-top: 12px;">Показать полностью</button>` : ''}
         `;
     } else if (entry.service_type === 'transactions') {
         const summary = result.summary || {};
+        const hasFullData = result.detailed_transactions || result.pl_report || result.anomalies || result.forecasts;
         return `
             <div><strong>Файл:</strong> ${escapeHtml(input.filename || '')}</div>
             <div><strong>Режим:</strong> ${escapeHtml(input.tax_mode || '')}</div>
             <div><strong>Налог:</strong> ${formatNumber(summary.tax || 0)} ₽</div>
+            ${hasFullData ? `<button onclick="showFullAnswer(${index}, 'transactions')" class="btn-show-full" style="margin-top: 12px;">Показать полный отчет</button>` : ''}
         `;
     } else if (entry.service_type === 'documents') {
+        const analysis = result.analysis || '';
+        const isLong = analysis.length > 200;
+        const preview = isLong ? analysis.substring(0, 200) + '...' : analysis;
         return `
             <div><strong>Файл:</strong> ${escapeHtml(input.filename || '')}</div>
-            <div style="margin-top: 8px;">${escapeHtml(result.analysis || '').substring(0, 200)}...</div>
+            <div style="margin-top: 8px;" class="markdown-content">${convertMarkdownToHtml(preview)}</div>
+            ${isLong ? `<button onclick="showFullAnswer(${index}, 'documents')" class="btn-show-full" style="margin-top: 12px;">Показать полностью</button>` : ''}
         `;
     }
     
     return '<div>Данные недоступны</div>';
+}
+
+// Глобальная переменная для хранения истории
+let currentHistory = [];
+
+async function showFullAnswer(index, serviceType) {
+    // Сохраняем историю в глобальную переменную при загрузке
+    if (currentHistory.length === 0) {
+        const filter = getHistoryFilter();
+        const url = `/api/history?limit=50${filter ? `&service_type=${filter}` : ''}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        currentHistory = (data.history || []).reverse();
+    }
+    
+    const entry = currentHistory[index];
+    if (!entry) return;
+    
+    const input = entry.input || {};
+    const result = entry.result || {};
+    
+    let title = '';
+    let content = '';
+    
+    if (serviceType === 'consultant') {
+        title = `Вопрос: ${escapeHtml(input.question || '')}`;
+        content = convertMarkdownToHtml(result.answer || '');
+    } else if (serviceType === 'transactions') {
+        title = `Анализ транзакций: ${escapeHtml(input.filename || '')}`;
+        content = formatFullTransactionResult(result);
+    } else if (serviceType === 'documents') {
+        title = `Анализ документа: ${escapeHtml(input.filename || '')}`;
+        content = convertMarkdownToHtml(result.analysis || '');
+    }
+    
+    // Создаем модальное окно
+    const modal = document.createElement('div');
+    modal.className = 'history-modal';
+    modal.innerHTML = `
+        <div class="history-modal-content">
+            <div class="history-modal-header">
+                <h3>${title}</h3>
+                <button class="history-modal-close" onclick="closeHistoryModal()">&times;</button>
+            </div>
+            <div class="history-modal-body">
+                ${content}
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Закрытие по клику вне модального окна
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closeHistoryModal();
+        }
+    });
+    
+    // Закрытие по Escape
+    const escapeHandler = function(e) {
+        if (e.key === 'Escape') {
+            closeHistoryModal();
+            document.removeEventListener('keydown', escapeHandler);
+        }
+    };
+    document.addEventListener('keydown', escapeHandler);
+}
+
+function closeHistoryModal() {
+    const modal = document.querySelector('.history-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function formatFullTransactionResult(result) {
+    let html = '';
+    
+    if (result.summary) {
+        const s = result.summary;
+        html += `
+            <div class="summary-section">
+                <h4>Сводка</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+                    <div>
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">Налог</div>
+                        <div style="font-size: 20px; font-weight: 600; color: var(--text-primary);">${formatNumber(s.tax || 0)} ₽</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">Доходы</div>
+                        <div style="font-size: 20px; font-weight: 600; color: var(--text-primary);">${formatNumber(s.income || 0)} ₽</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">Расходы</div>
+                        <div style="font-size: 20px; font-weight: 600; color: var(--text-primary);">${formatNumber(s.expenses || 0)} ₽</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    if (result.pl_report && result.pl_report.length > 0) {
+        html += `<div class="summary-section"><h4>Отчет о прибылях и убытках</h4>${formatPLReport(result.pl_report)}</div>`;
+    }
+    
+    if (result.anomalies && result.anomalies.length > 0) {
+        html += `<div class="summary-section"><h4>Обнаруженные аномалии</h4><div class="anomalies-list">${formatAnomalies(result.anomalies)}</div></div>`;
+    }
+    
+    if (result.forecasts && result.forecasts.length > 0) {
+        html += `<div class="summary-section"><h4>Прогнозы</h4><div class="forecasts-list">${formatForecasts(result.forecasts)}</div></div>`;
+    }
+    
+    return html;
+}
+
+function formatPLReport(pl) {
+    let html = '<div class="pl-report">';
+    pl.forEach(item => {
+        const isHighlight = item.label && (item.label.includes('Прибыль') || item.label.includes('EBITDA'));
+        html += `
+            <div class="pl-row ${isHighlight ? 'pl-highlight' : ''}">
+                <span class="pl-label">${escapeHtml(item.label || '')}</span>
+                <span class="pl-value">${formatNumber(item.value || 0)} ₽</span>
+            </div>
+        `;
+    });
+    html += '</div>';
+    return html;
+}
+
+function formatAnomalies(anomalies) {
+    return anomalies.map(a => {
+        const severityClass = a.severity === 'high' ? 'anomaly-high' : 'anomaly-medium';
+        return `
+            <div class="anomaly-item ${severityClass}">
+                <div class="anomaly-type">${escapeHtml(a.type || '')}</div>
+                <div class="anomaly-description">${escapeHtml(a.description || '')}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function formatForecasts(forecasts) {
+    return forecasts.map(f => {
+        const typeClass = f.type === 'critical' ? 'forecast-critical' : 
+                         f.type === 'warning' ? 'forecast-warning' : 'forecast-info';
+        return `
+            <div class="forecast-item ${typeClass}">
+                <div class="forecast-type">${escapeHtml(f.period || '')}</div>
+                <div class="forecast-description">${escapeHtml(f.description || '')}</div>
+                ${f.recommendations ? `<div class="forecast-recommendations" style="margin-top: 8px; font-size: 13px;">${escapeHtml(f.recommendations)}</div>` : ''}
+            </div>
+        `;
+    }).join('');
 }
 
 async function exportHistory() {

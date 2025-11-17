@@ -25,6 +25,11 @@ langchain-text-splitters==0.3.4
 # Логирование и мониторинг
 tqdm==4.67.1
 
+# Для knowledge_base_builder (парсинг статей и законов)
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
 # Валидация данных
 pydantic==2.10.4
 pydantic-core==2.27.2
