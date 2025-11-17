@@ -1406,6 +1406,13 @@ input[type="radio"]:checked + .history-filter-option::before {
     z-index: 1;
 }
 
+#incomeExpensesChart {
+    flex: none;
+    max-height: 260px;
+    height: 260px !important;
+    width: 100% !important;
+}
+
 .charts-container {
     margin-top: 24px;
     display: grid;
