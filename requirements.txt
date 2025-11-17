@@ -34,6 +34,9 @@ lxml==5.3.0
 pydantic==2.10.4
 pydantic-core==2.27.2
 
+# Экспорт в PDF
+reportlab==4.2.5
+
 # ASGI сервер
 anyio==4.7.0
 

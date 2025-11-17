@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ФинПульс - AI для финансов</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -18,8 +19,8 @@
 
         <!-- Tabs -->
         <div class="tabs">
-            <button class="tab-button active" data-tab="transactions">
-                Анализ транзакций
+                <button class="tab-button active" data-tab="transactions">
+                Финансовый аналитик
             </button>
             <button class="tab-button" data-tab="documents">
                 Анализ документов
@@ -37,10 +38,11 @@
             <!-- Transaction Analyzer -->
             <div id="transactions" class="tab-pane active">
                 <div class="card">
-                    <h2>Анализатор транзакций</h2>
+                    <h2>Умный финансовый аналитик</h2>
                     <p class="description">
                         Загрузите банковскую выписку в формате CSV или XLSX. 
-                        Система автоматически категоризирует транзакции и рассчитает налоги.
+                        Система автоматически категоризирует транзакции, рассчитает налоги, выявит аномалии, 
+                        создаст прогнозы и предоставит налоговое планирование с рекомендациями.
                     </p>
                     
                     <form id="transactionForm" class="form">
@@ -149,7 +151,7 @@
                                     <path d="M1 1L6 6L11 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
                             </button>
-                            <div class="history-filter-menu" id="historyFilterMenu"><input type="radio" id="filter-all" name="historyFilter" value="" checked hidden><label for="filter-all" class="history-filter-option" data-label="Все сервисы">Все сервисы</label><input type="radio" id="filter-transactions" name="historyFilter" value="transactions" hidden><label for="filter-transactions" class="history-filter-option" data-label="Анализ транзакций">Анализ транзакций</label><input type="radio" id="filter-documents" name="historyFilter" value="documents" hidden><label for="filter-documents" class="history-filter-option" data-label="Анализ документов">Анализ документов</label><input type="radio" id="filter-consultant" name="historyFilter" value="consultant" hidden><label for="filter-consultant" class="history-filter-option" data-label="Юридический консультант">Юридический консультант</label></div>
+                            <div class="history-filter-menu" id="historyFilterMenu"><input type="radio" id="filter-all" name="historyFilter" value="" checked hidden><label for="filter-all" class="history-filter-option" data-label="Все сервисы">Все сервисы</label><input type="radio" id="filter-transactions" name="historyFilter" value="transactions" hidden><label for="filter-transactions" class="history-filter-option" data-label="Финансовый аналитик">Финансовый аналитик</label><input type="radio" id="filter-documents" name="historyFilter" value="documents" hidden><label for="filter-documents" class="history-filter-option" data-label="Анализ документов">Анализ документов</label><input type="radio" id="filter-consultant" name="historyFilter" value="consultant" hidden><label for="filter-consultant" class="history-filter-option" data-label="Юридический консультант">Юридический консультант</label></div>
                         </div>
                     </div>
                     

@@ -186,6 +186,116 @@ class TransactionHistory:
             "monthly_avg": monthly_avg,
             "trend": trend
         }
+    
+    def get_period_comparison(self, current_start: datetime, current_end: datetime, current_transactions_list: list = None) -> Dict:
+        """
+        Сравнивает текущий период с предыдущим периодом той же длительности.
+        
+        Args:
+            current_start: Начало текущего периода
+            current_end: Конец текущего периода
+            current_transactions_list: Список транзакций текущего периода (из загруженного файла)
+            
+        Returns:
+            Dict с данными для сравнения: current_period, previous_period, comparison
+        """
+        period_days = (current_end - current_start).days + 1
+        previous_end = current_start - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=period_days - 1)
+        
+        # Получаем транзакции из истории за оба периода
+        all_transactions = self.get_historical_transactions(days_back=365)
+        
+        # Используем переданные транзакции текущего периода или ищем в истории
+        if current_transactions_list:
+            current_transactions = current_transactions_list
+        else:
+            current_transactions = []
+            for tx in all_transactions:
+                try:
+                    date_str = tx.get("Дата", "")
+                    if not date_str:
+                        continue
+                        
+                    if isinstance(date_str, str):
+                        tx_date = datetime.fromisoformat(date_str.split('T')[0])
+                        
+                        if current_start <= tx_date <= current_end:
+                            current_transactions.append(tx)
+                except (ValueError, AttributeError):
+                    continue
+        
+        # Ищем предыдущий период в истории
+        previous_transactions = []
+        for tx in all_transactions:
+            try:
+                date_str = tx.get("Дата", "")
+                if not date_str:
+                    continue
+                    
+                if isinstance(date_str, str):
+                    tx_date = datetime.fromisoformat(date_str.split('T')[0])
+                    
+                    if previous_start <= tx_date <= previous_end:
+                        previous_transactions.append(tx)
+            except (ValueError, AttributeError):
+                continue
+        
+        # Агрегируем данные
+        def aggregate_period(transactions):
+            income = sum(abs(float(tx.get("Сумма", 0))) for tx in transactions 
+                       if tx.get("Категория") == "Поступление от клиента")
+            expenses = sum(abs(float(tx.get("Сумма", 0))) for tx in transactions 
+                          if tx.get("Категория") != "Поступление от клиента")
+            
+            # По категориям
+            by_category = defaultdict(float)
+            for tx in transactions:
+                if tx.get("Категория") != "Поступление от клиента":
+                    cat = tx.get("Категория", "Прочее")
+                    by_category[cat] += abs(float(tx.get("Сумма", 0)))
+            
+            return {
+                "income": income,
+                "expenses": expenses,
+                "balance": income - expenses,
+                "by_category": dict(by_category),
+                "transaction_count": len(transactions)
+            }
+        
+        current_data = aggregate_period(current_transactions)
+        previous_data = aggregate_period(previous_transactions)
+        
+        # Сравнение
+        comparison = {}
+        if previous_data["income"] > 0:
+            comparison["income_change_pct"] = ((current_data["income"] - previous_data["income"]) / previous_data["income"]) * 100
+        else:
+            comparison["income_change_pct"] = 0 if current_data["income"] == 0 else 100
+        
+        if previous_data["expenses"] > 0:
+            comparison["expenses_change_pct"] = ((current_data["expenses"] - previous_data["expenses"]) / previous_data["expenses"]) * 100
+        else:
+            comparison["expenses_change_pct"] = 0 if current_data["expenses"] == 0 else 100
+        
+        if previous_data["balance"] != 0:
+            comparison["balance_change_pct"] = ((current_data["balance"] - previous_data["balance"]) / abs(previous_data["balance"])) * 100
+        else:
+            comparison["balance_change_pct"] = 0 if current_data["balance"] == 0 else (100 if current_data["balance"] > 0 else -100)
+        
+        return {
+            "current_period": {
+                "start": current_start.strftime("%Y-%m-%d"),
+                "end": current_end.strftime("%Y-%m-%d"),
+                **current_data
+            },
+            "previous_period": {
+                "start": previous_start.strftime("%Y-%m-%d"),
+                "end": previous_end.strftime("%Y-%m-%d"),
+                **previous_data
+            },
+            "comparison": comparison
+        }
 
 
 # Глобальный экземпляр

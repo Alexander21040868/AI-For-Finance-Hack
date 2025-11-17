@@ -96,11 +96,42 @@ class TransactionAnalyzer:
 
         # Валидация и нормализация дат
         try:
-            df["Дата"] = pd.to_datetime(df["Дата"], errors="coerce", dayfirst=True)
+            # Сохраняем исходные даты для восстановления при необходимости
+            original_dates = df["Дата"].copy()
+            
+            # Пробуем парсить как YYYY-MM-DD (стандартный формат)
+            df["Дата"] = pd.to_datetime(df["Дата"], errors="coerce", dayfirst=False, format='%Y-%m-%d')
+            
+            # Если не получилось, пробуем без формата (автоопределение)
             if df["Дата"].isna().any():
-                print("[WARN] Некоторые даты не удалось распознать. Используются как есть.")
+                mask = df["Дата"].isna()
+                df.loc[mask, "Дата"] = pd.to_datetime(original_dates[mask], errors="coerce", dayfirst=True)
+            
+            # Если все еще есть NaN, пробуем как строки в формате YYYY-MM-DD
+            if df["Дата"].isna().any():
+                mask = df["Дата"].isna()
+                for idx in df[mask].index:
+                    date_str = str(original_dates.loc[idx]).strip()
+                    # Пробуем распарсить как YYYY-MM-DD
+                    if len(date_str) >= 10 and date_str[4] == '-' and date_str[7] == '-':
+                        try:
+                            parsed = pd.to_datetime(date_str[:10], format='%Y-%m-%d', errors="coerce")
+                            if pd.notna(parsed):
+                                df.loc[idx, "Дата"] = parsed
+                        except:
+                            pass
+            
+            na_count = df["Дата"].isna().sum()
+            if na_count > 0:
+                print(f"[WARN] {na_count} дат не удалось распознать из {len(df)} транзакций")
+                # Выводим примеры проблемных дат
+                problem_indices = df[df["Дата"].isna()].index.tolist()[:5]
+                for idx in problem_indices:
+                    print(f"[WARN] Проблемная дата (индекс {idx}): '{original_dates.loc[idx]}' -> NaN")
         except Exception as e:
             print(f"[WARN] Ошибка при парсинге дат: {e}")
+            import traceback
+            traceback.print_exc()
 
         # Проверка на дубликаты (по дате, сумме и назначению)
         duplicates = df.duplicated(subset=["Дата", "Сумма", "Назначение платежа"], keep=False)
@@ -460,6 +491,10 @@ class TransactionAnalyzer:
 
             # Управленческий P&L
             pl_report = self._generate_pl_report(df)
+            
+            # Вычисляем общие доходы и расходы для summary
+            total_income = df[df["Категория"] == "Поступление от клиента"]["Сумма"].sum()
+            total_expenses = df[df["Категория"] != "Поступление от клиента"]["Сумма"].abs().sum()
 
             # Прогнозы и рекомендации (с учетом сезонности и истории)
             forecasts = self._generate_forecasts(df)
@@ -470,26 +505,116 @@ class TransactionAnalyzer:
                 "Категория", "Подкатегория", "Контрагент", "Проект"
             ]].copy()
             
+            # Проверяем даты перед конвертацией
+            na_before = detailed_df["Дата"].isna().sum()
+            if na_before > 0:
+                print(f"[WARN] Перед конвертацией: {na_before} транзакций с NaN датами")
+                # Выводим примеры
+                for idx in detailed_df[detailed_df["Дата"].isna()].index[:3]:
+                    print(f"[WARN] Транзакция без даты (индекс {idx}): Категория='{detailed_df.loc[idx, 'Категория']}', Сумма={detailed_df.loc[idx, 'Сумма']}")
+            
             # Конвертируем Timestamp в строки для JSON сериализации
             if "Дата" in detailed_df.columns:
-                detailed_df["Дата"] = detailed_df["Дата"].apply(
-                    lambda x: x.strftime("%Y-%m-%d") if pd.notna(x) and hasattr(x, 'strftime') else str(x) if pd.notna(x) else ""
-                )
+                def convert_date(x):
+                    if pd.isna(x):
+                        return ""
+                    # Если это Timestamp или datetime объект
+                    if hasattr(x, 'strftime'):
+                        try:
+                            return x.strftime("%Y-%m-%d")
+                        except:
+                            return str(x)
+                    # Если это уже строка
+                    if isinstance(x, str):
+                        # Пытаемся распарсить и вернуть в нужном формате
+                        try:
+                            parsed = pd.to_datetime(x, errors="coerce")
+                            if pd.notna(parsed):
+                                return parsed.strftime("%Y-%m-%d")
+                            return x  # Возвращаем исходную строку, если не удалось распарсить
+                        except:
+                            return x
+                    return str(x) if x else ""
+                
+                detailed_df["Дата"] = detailed_df["Дата"].apply(convert_date)
+                
+                # Проверяем, что даты не потерялись
+                empty_dates = detailed_df["Дата"].eq("").sum()
+                if empty_dates > 0:
+                    print(f"[WARN] {empty_dates} транзакций с пустыми датами после конвертации")
+                    # Пытаемся восстановить из исходного DataFrame
+                    # Используем reset_index для сохранения исходных индексов
+                    detailed_df_reset = detailed_df.reset_index()
+                    df_reset = df.reset_index()
+                    
+                    for idx in detailed_df[detailed_df["Дата"] == ""].index:
+                        # Находим соответствующую строку в исходном DataFrame
+                        # Индексы должны совпадать, так как мы делали copy() без изменений порядка
+                        if idx in df.index:
+                            original_date = df.loc[idx, "Дата"]
+                            if pd.notna(original_date):
+                                try:
+                                    if hasattr(original_date, 'strftime'):
+                                        detailed_df.loc[idx, "Дата"] = original_date.strftime("%Y-%m-%d")
+                                    else:
+                                        # Пробуем распарсить строку
+                                        parsed = pd.to_datetime(str(original_date), errors="coerce")
+                                        if pd.notna(parsed):
+                                            detailed_df.loc[idx, "Дата"] = parsed.strftime("%Y-%m-%d")
+                                        else:
+                                            detailed_df.loc[idx, "Дата"] = str(original_date)
+                                except Exception as e:
+                                    print(f"[WARN] Ошибка при восстановлении даты для индекса {idx}: {e}")
+                                    detailed_df.loc[idx, "Дата"] = str(original_date) if original_date else ""
+                    
+                    # Проверяем результат
+                    empty_after = detailed_df["Дата"].eq("").sum()
+                    if empty_after < empty_dates:
+                        print(f"[INFO] Восстановлено {empty_dates - empty_after} дат")
+                    if empty_after > 0:
+                        print(f"[WARN] Осталось {empty_after} транзакций с пустыми датами")
             
             # Конвертируем все числовые типы в нативные Python типы
             detailed_df["Сумма"] = detailed_df["Сумма"].apply(lambda x: float(x) if pd.notna(x) else 0.0)
+            
+            # Сравнение периодов (для bar chart)
+            period_comparison = None
+            if "Дата" in df.columns and not df["Дата"].isna().all():
+                try:
+                    dates = pd.to_datetime(df["Дата"], errors="coerce").dropna()
+                    if len(dates) > 0:
+                        current_start = dates.min().to_pydatetime()
+                        current_end = dates.max().to_pydatetime()
+                        # Передаем транзакции из текущего файла для точного расчета
+                        current_tx_list = detailed_df.to_dict(orient="records")
+                        period_comparison = transaction_history.get_period_comparison(
+                            current_start, current_end, current_transactions_list=current_tx_list
+                        )
+                except Exception as e:
+                    print(f"[WARN] Ошибка при расчете сравнения периодов: {e}")
+            
+            # Бенчмаркинг
+            benchmarking = self._calculate_benchmarking(pl_report, df)
+            
+            # Налоговое планирование
+            tax_planning = self._generate_tax_planning(df, tax_mode, total_tax, forecasts)
             
             return {
                 "summary": {
                     "mode": tax_mode,
                     "tax": total_tax,
-                    "transactions": len(df)
+                    "transactions": len(df),
+                    "income": float(total_income),
+                    "expenses": float(total_expenses)
                 },
                 "transactions": tax_table.to_dict(orient="records"),
                 "detailed_transactions": detailed_df.to_dict(orient="records"),
                 "anomalies": anomalies,
                 "pl_report": pl_report,
-                "forecasts": forecasts
+                "forecasts": forecasts,
+                "period_comparison": period_comparison,
+                "benchmarking": benchmarking,
+                "tax_planning": tax_planning
             }
 
         except Exception as e:
@@ -661,10 +786,12 @@ class TransactionAnalyzer:
         # Валовая прибыль
         gross_profit = revenue - cogs
         
-        # Операционные расходы
-        operating_expenses = df[
+        # Операционные расходы (все расходы кроме COGS и "Не принимаемые расходы")
+        # COGS уже учтен отдельно, поэтому вычитаем его из операционных расходов
+        all_expenses = df[
             ~df["Категория"].isin(["Поступление от клиента", "Не принимаемые расходы"])
         ]["Сумма"].abs().sum()
+        operating_expenses = all_expenses - cogs  # Исключаем COGS из операционных расходов
         
         # Операционная прибыль (EBITDA)
         operating_profit = gross_profit - operating_expenses
@@ -703,53 +830,88 @@ class TransactionAnalyzer:
         total_income = df[df["Категория"] == "Поступление от клиента"]["Сумма"].sum()
         
         # Определяем период данных (в днях)
+        num_transactions = len(df)
         if "Дата" in df.columns and not df["Дата"].isna().all():
             try:
                 dates = pd.to_datetime(df["Дата"], errors="coerce")
                 dates = dates.dropna()
                 if len(dates) > 1:
                     period_days = (dates.max() - dates.min()).days + 1
+                elif len(dates) == 1:
+                    # Если только одна транзакция, используем минимальный период (1 день)
+                    period_days = 1
                 else:
-                    period_days = 30  # По умолчанию
+                    period_days = 1
             except:
-                period_days = 30
+                period_days = 1
         else:
-            period_days = 30
+            period_days = 1
+        
+        # Если транзакций мало, используем более консервативный подход
+        use_history = num_transactions >= 5  # Используем историю только если есть достаточно данных
         
         # Средние дневные расходы и доходы
-        avg_daily_expenses = total_expenses / max(period_days, 1)
-        avg_daily_income = total_income / max(period_days, 1)
+        # Если период слишком мал (1 день), не экстраполируем на 30 дней напрямую
+        if period_days < 7 and num_transactions < 5:
+            # Для малого количества данных используем более консервативный прогноз
+            # Берем текущие значения и умножаем на разумный коэффициент
+            avg_daily_expenses = total_expenses / max(period_days, 1)
+            avg_daily_income = total_income / max(period_days, 1)
+            # Для малого количества данных не экстраполируем линейно на 30 дней
+            # Используем более консервативный подход: умножаем на количество дней в месяце / период
+            forecast_30d_expenses = avg_daily_expenses * 30
+            forecast_30d_income = avg_daily_income * 30
+            seasonal_factor_expenses = 1.0
+            seasonal_factor_income = 1.0
+        else:
+            avg_daily_expenses = total_expenses / max(period_days, 1)
+            avg_daily_income = total_income / max(period_days, 1)
+            
+            # Получаем исторические данные для более точного прогноза (только если достаточно данных)
+            if use_history:
+                hist_expenses_stats = transaction_history.get_category_statistics("Аренда", days_back=90)
+                hist_income_stats = transaction_history.get_category_statistics("Поступление от клиента", days_back=90)
+            else:
+                hist_expenses_stats = {"count": 0, "std": 0}
+                hist_income_stats = {"count": 0, "std": 0}
+            
+            # Учитываем сезонность (только если достаточно данных)
+            seasonal_factor_expenses = 1.0
+            seasonal_factor_income = 1.0
+            
+            if use_history:
+                current_month = datetime.now().month
+                seasonal_patterns_expenses = transaction_history.get_seasonal_patterns("Аренда", days_back=365)
+                seasonal_patterns_income = transaction_history.get_seasonal_patterns("Поступление от клиента", days_back=365)
+                
+                if seasonal_patterns_expenses["monthly_avg"]:
+                    current_month_key = str(current_month).zfill(2)
+                    if current_month_key in seasonal_patterns_expenses["monthly_avg"]:
+                        avg_all_months = sum(seasonal_patterns_expenses["monthly_avg"].values()) / len(seasonal_patterns_expenses["monthly_avg"])
+                        if avg_all_months > 0:
+                            seasonal_factor_expenses = seasonal_patterns_expenses["monthly_avg"][current_month_key] / avg_all_months
+                            # Ограничиваем сезонный коэффициент разумными пределами (0.5 - 2.0)
+                            seasonal_factor_expenses = max(0.5, min(2.0, seasonal_factor_expenses))
+                
+                if seasonal_patterns_income["monthly_avg"]:
+                    current_month_key = str(current_month).zfill(2)
+                    if current_month_key in seasonal_patterns_income["monthly_avg"]:
+                        avg_all_months = sum(seasonal_patterns_income["monthly_avg"].values()) / len(seasonal_patterns_income["monthly_avg"])
+                        if avg_all_months > 0:
+                            seasonal_factor_income = seasonal_patterns_income["monthly_avg"][current_month_key] / avg_all_months
+                            # Ограничиваем сезонный коэффициент разумными пределами (0.5 - 2.0)
+                            seasonal_factor_income = max(0.5, min(2.0, seasonal_factor_income))
+            
+            # Прогноз на 30 дней с учетом сезонности
+            forecast_30d_expenses = avg_daily_expenses * 30 * seasonal_factor_expenses
+            forecast_30d_income = avg_daily_income * 30 * seasonal_factor_income
         
-        # Получаем исторические данные для более точного прогноза
-        hist_expenses_stats = transaction_history.get_category_statistics("Аренда", days_back=90)
-        hist_income_stats = transaction_history.get_category_statistics("Поступление от клиента", days_back=90)
-        
-        # Учитываем сезонность
-        current_month = datetime.now().month
-        seasonal_patterns_expenses = transaction_history.get_seasonal_patterns("Аренда", days_back=365)
-        seasonal_patterns_income = transaction_history.get_seasonal_patterns("Поступление от клиента", days_back=365)
-        
-        # Сезонный коэффициент (если есть данные)
-        seasonal_factor_expenses = 1.0
-        seasonal_factor_income = 1.0
-        
-        if seasonal_patterns_expenses["monthly_avg"]:
-            current_month_key = str(current_month).zfill(2)
-            if current_month_key in seasonal_patterns_expenses["monthly_avg"]:
-                avg_all_months = sum(seasonal_patterns_expenses["monthly_avg"].values()) / len(seasonal_patterns_expenses["monthly_avg"])
-                if avg_all_months > 0:
-                    seasonal_factor_expenses = seasonal_patterns_expenses["monthly_avg"][current_month_key] / avg_all_months
-        
-        if seasonal_patterns_income["monthly_avg"]:
-            current_month_key = str(current_month).zfill(2)
-            if current_month_key in seasonal_patterns_income["monthly_avg"]:
-                avg_all_months = sum(seasonal_patterns_income["monthly_avg"].values()) / len(seasonal_patterns_income["monthly_avg"])
-                if avg_all_months > 0:
-                    seasonal_factor_income = seasonal_patterns_income["monthly_avg"][current_month_key] / avg_all_months
-        
-        # Прогноз на 30 дней с учетом сезонности
-        forecast_30d_expenses = avg_daily_expenses * 30 * seasonal_factor_expenses
-        forecast_30d_income = avg_daily_income * 30 * seasonal_factor_income
+        # Логирование для отладки
+        print(f"[FORECAST] Транзакций: {num_transactions}, Период: {period_days} дней")
+        print(f"[FORECAST] Расходы: {total_expenses:.2f} ₽, Доходы: {total_income:.2f} ₽")
+        print(f"[FORECAST] Средние дневные: расходы {avg_daily_expenses:.2f} ₽/день, доходы {avg_daily_income:.2f} ₽/день")
+        print(f"[FORECAST] Сезонные коэффициенты: расходы {seasonal_factor_expenses:.2f}x, доходы {seasonal_factor_income:.2f}x")
+        print(f"[FORECAST] Прогноз на 30 дней: расходы {forecast_30d_expenses:.2f} ₽, доходы {forecast_30d_income:.2f} ₽")
         
         # Confidence intervals (95% доверительный интервал)
         # Используем стандартное отклонение из истории, если доступно
@@ -775,27 +937,62 @@ class TransactionAnalyzer:
         forecast_balance_ci_lower = income_ci_lower - expenses_ci_upper  # Худший сценарий
         forecast_balance_ci_upper = income_ci_upper - expenses_ci_lower  # Лучший сценарий
         
-        # Рекомендации
+        # Рекомендации с конкретными действиями
         recommendations = []
+        
+        # Анализ расходов по категориям для конкретных рекомендаций
+        expense_breakdown = {}
+        for category in df[df["Категория"] != "Поступление от клиента"]["Категория"].unique():
+            expense_breakdown[category] = float(
+                df[df["Категория"] == category]["Сумма"].abs().sum()
+            )
+        
+        # Топ-3 категории расходов
+        top_expenses = sorted(expense_breakdown.items(), key=lambda x: x[1], reverse=True)[:3]
+        
+        # Конкретные рекомендации по оптимизации
+        if top_expenses:
+            for category, amount in top_expenses:
+                if amount > 50000:  # Если категория расходов > 50,000₽
+                    potential_savings = amount * 0.15  # Предлагаем сэкономить 15%
+                    recommendations.append({
+                        "type": "info",
+                        "title": f"Оптимизация: {category}",
+                        "message": f"Снижение расходов на {category} на 15% сэкономит {potential_savings:.0f} ₽/мес ({potential_savings * 12:.0f} ₽/год). Текущие расходы: {amount:.0f} ₽"
+                    })
+        
+        # Рекомендация по налоговому режиму
+        income = df[df["Категория"] == "Поступление от клиента"]["Сумма"].sum()
+        expenses = df[df["Категория"] != "Поступление от клиента"]["Сумма"].abs().sum()
+        if income > 0 and expenses > 0:
+            tax_income_mode = income * 0.06
+            tax_expenses_mode = max((income - expenses) * 0.15, 0)
+            if tax_expenses_mode < tax_income_mode and expenses / income > 0.3:
+                savings = tax_income_mode - tax_expenses_mode
+                recommendations.append({
+                    "type": "info",
+                    "title": "Оптимизация налогообложения",
+                    "message": f"Переход на УСН 'доходы минус расходы' может сэкономить {savings:.0f} ₽/мес ({savings * 12:.0f} ₽/год). Текущий налог: {tax_income_mode:.0f} ₽, при новом режиме: {tax_expenses_mode:.0f} ₽"
+                })
         
         if regular_payments > 0:
             recommendations.append({
                 "type": "warning",
                 "title": "Регулярные платежи",
-                "message": f"В следующем периоде ожидаются регулярные платежи на сумму {regular_payments:.2f} ₽"
+                "message": f"В следующем периоде ожидаются регулярные платежи на сумму {regular_payments:.2f} ₽. Убедитесь в наличии средств на счете."
             })
         
         if forecast_balance_ci_lower < 0:
             recommendations.append({
                 "type": "critical",
                 "title": "Риск отрицательного баланса",
-                "message": f"В худшем сценарии прогнозируется отрицательный баланс через 30 дней (нижняя граница: {forecast_balance_ci_lower:.2f} ₽)"
+                "message": f"В худшем сценарии прогнозируется отрицательный баланс через 30 дней (нижняя граница: {forecast_balance_ci_lower:.2f} ₽). Рекомендуется увеличить доходы или сократить расходы на {abs(forecast_balance_ci_lower):.0f} ₽"
             })
         elif forecast_balance < 0:
             recommendations.append({
                 "type": "warning",
                 "title": "Негативный прогноз",
-                "message": f"При текущих темпах прогнозируется отрицательный баланс через 30 дней ({forecast_balance:.2f} ₽)"
+                "message": f"При текущих темпах прогнозируется отрицательный баланс через 30 дней ({forecast_balance:.2f} ₽). Рекомендуется сократить расходы на {abs(forecast_balance):.0f} ₽ или увеличить доходы"
             })
         
         # Сезонные рекомендации
@@ -804,14 +1001,17 @@ class TransactionAnalyzer:
                 recommendations.append({
                     "type": "info",
                     "title": "Сезонность расходов",
-                    "message": f"Текущий месяц обычно характеризуется повышенными расходами (коэффициент: {seasonal_factor_expenses:.2f}x)"
+                    "message": f"Текущий месяц обычно характеризуется повышенными расходами (коэффициент: {seasonal_factor_expenses:.2f}x). Заранее подготовьте резерв средств"
                 })
             if seasonal_factor_income < 0.85:
                 recommendations.append({
                     "type": "warning",
                     "title": "Сезонность доходов",
-                    "message": f"Текущий месяц обычно характеризуется снижением доходов (коэффициент: {seasonal_factor_income:.2f}x)"
+                    "message": f"Текущий месяц обычно характеризуется снижением доходов (коэффициент: {seasonal_factor_income:.2f}x). Рекомендуется сократить расходы или использовать резерв"
                 })
+        
+        # Приоритизация рекомендаций (критические первыми)
+        recommendations.sort(key=lambda x: {"critical": 0, "warning": 1, "info": 2}.get(x["type"], 3))
 
         return {
             "avg_daily_expenses": float(avg_daily_expenses),
@@ -837,5 +1037,194 @@ class TransactionAnalyzer:
                 "expenses": float(seasonal_factor_expenses),
                 "income": float(seasonal_factor_income)
             },
+            "recommendations": recommendations
+        }
+    
+    def _calculate_benchmarking(self, pl_report: Dict, df: pd.DataFrame) -> Dict:
+        """
+        Сравнение с индустриальными бенчмарками.
+        Использует типичные значения для малого и среднего бизнеса в России.
+        """
+        revenue = pl_report.get("revenue", 0)
+        if revenue == 0:
+            return {
+                "available": False,
+                "message": "Недостаточно данных для бенчмаркинга"
+            }
+        
+        # Индустриальные бенчмарки (типичные значения для малого/среднего бизнеса в России)
+        # Источник: обобщенные данные по отраслям
+        benchmarks = {
+            "cac_ratio": 0.15,  # Реклама не должна превышать 15% выручки
+            "gross_margin": 30.0,  # Типичная валовая маржа: 30%
+            "operating_margin": 15.0,  # Типичная операционная маржа: 15%
+            "advertising_ratio": 0.10,  # Реклама: 10% выручки
+            "salary_ratio": 0.30,  # Зарплата: 30% выручки
+            "rent_ratio": 0.05,  # Аренда: 5% выручки
+        }
+        
+        # Текущие показатели
+        current_cac_ratio = 0
+        advertising = df[df["Категория"] == "Реклама"]["Сумма"].abs().sum()
+        if revenue > 0:
+            current_cac_ratio = advertising / revenue
+        
+        current_gross_margin = pl_report.get("gross_margin", 0)
+        current_operating_margin = pl_report.get("operating_margin", 0)
+        
+        salary = df[df["Категория"] == "Зарплата"]["Сумма"].abs().sum()
+        rent = df[df["Категория"] == "Аренда"]["Сумма"].abs().sum()
+        
+        current_salary_ratio = salary / revenue if revenue > 0 else 0
+        current_rent_ratio = rent / revenue if revenue > 0 else 0
+        current_advertising_ratio = advertising / revenue if revenue > 0 else 0
+        
+        # Сравнения
+        comparisons = []
+        
+        if current_cac_ratio > benchmarks["cac_ratio"]:
+            comparisons.append({
+                "metric": "CAC (стоимость привлечения клиента)",
+                "current": f"{current_cac_ratio*100:.1f}%",
+                "benchmark": f"{benchmarks['cac_ratio']*100:.0f}%",
+                "status": "warning",
+                "message": f"Ваш CAC ({current_cac_ratio*100:.1f}%) выше среднего по отрасли ({benchmarks['cac_ratio']*100:.0f}%). Рекомендуется оптимизировать рекламные каналы."
+            })
+        else:
+            comparisons.append({
+                "metric": "CAC (стоимость привлечения клиента)",
+                "current": f"{current_cac_ratio*100:.1f}%",
+                "benchmark": f"{benchmarks['cac_ratio']*100:.0f}%",
+                "status": "good",
+                "message": f"Ваш CAC ({current_cac_ratio*100:.1f}%) в пределах нормы."
+            })
+        
+        if current_gross_margin < benchmarks["gross_margin"]:
+            comparisons.append({
+                "metric": "Валовая маржа",
+                "current": f"{current_gross_margin:.1f}%",
+                "benchmark": f"{benchmarks['gross_margin']:.0f}%",
+                "status": "warning",
+                "message": f"Ваша валовая маржа ({current_gross_margin:.1f}%) ниже среднего по отрасли ({benchmarks['gross_margin']:.0f}%). Рекомендуется пересмотреть ценообразование или себестоимость."
+            })
+        else:
+            comparisons.append({
+                "metric": "Валовая маржа",
+                "current": f"{current_gross_margin:.1f}%",
+                "benchmark": f"{benchmarks['gross_margin']:.0f}%",
+                "status": "good",
+                "message": f"Ваша валовая маржа ({current_gross_margin:.1f}%) соответствует или превышает средний показатель."
+            })
+        
+        if current_operating_margin < benchmarks["operating_margin"]:
+            comparisons.append({
+                "metric": "Операционная маржа (EBITDA)",
+                "current": f"{current_operating_margin:.1f}%",
+                "benchmark": f"{benchmarks['operating_margin']:.0f}%",
+                "status": "warning",
+                "message": f"Ваша операционная маржа ({current_operating_margin:.1f}%) ниже среднего по отрасли ({benchmarks['operating_margin']:.0f}%). Рекомендуется оптимизировать операционные расходы."
+            })
+        else:
+            comparisons.append({
+                "metric": "Операционная маржа (EBITDA)",
+                "current": f"{current_operating_margin:.1f}%",
+                "benchmark": f"{benchmarks['operating_margin']:.0f}%",
+                "status": "good",
+                "message": f"Ваша операционная маржа ({current_operating_margin:.1f}%) соответствует или превышает средний показатель."
+            })
+        
+        return {
+            "available": True,
+            "comparisons": comparisons,
+            "benchmarks": benchmarks,
+            "current_metrics": {
+                "cac_ratio": float(current_cac_ratio),
+                "gross_margin": float(current_gross_margin),
+                "operating_margin": float(current_operating_margin),
+                "salary_ratio": float(current_salary_ratio),
+                "rent_ratio": float(current_rent_ratio),
+                "advertising_ratio": float(current_advertising_ratio)
+            }
+        }
+    
+    def _generate_tax_planning(self, df: pd.DataFrame, current_mode: str, current_tax: float, forecasts: Dict) -> Dict:
+        """
+        Генерация налогового планирования на год с рекомендациями.
+        """
+        revenue = df[df["Категория"] == "Поступление от клиента"]["Сумма"].sum()
+        expenses = df[df["Категория"] != "Поступление от клиента"]["Сумма"].abs().sum()
+        
+        if revenue == 0:
+            return {
+                "available": False,
+                "message": "Недостаточно данных для налогового планирования"
+            }
+        
+        # Прогноз на год (используем данные из forecasts)
+        forecast_30d_income = forecasts.get("forecast_30d_income", revenue)
+        forecast_30d_expenses = forecasts.get("forecast_30d_expenses", expenses)
+        
+        # Экстраполируем на год (упрощенно: умножаем на 12)
+        annual_income_forecast = forecast_30d_income * 12
+        annual_expenses_forecast = forecast_30d_expenses * 12
+        
+        # Расчет налогов для разных режимов
+        tax_scenarios = []
+        
+        # УСН "доходы" (6%)
+        tax_income_mode = annual_income_forecast * 0.06
+        tax_scenarios.append({
+            "mode": "УСН 'доходы' (6%)",
+            "annual_income": annual_income_forecast,
+            "annual_expenses": annual_expenses_forecast,
+            "tax": tax_income_mode,
+            "effective_rate": 6.0
+        })
+        
+        # УСН "доходы минус расходы" (15%)
+        taxable_base = max(annual_income_forecast - annual_expenses_forecast, 0)
+        tax_expenses_mode = taxable_base * 0.15
+        tax_scenarios.append({
+            "mode": "УСН 'доходы минус расходы' (15%)",
+            "annual_income": annual_income_forecast,
+            "annual_expenses": annual_expenses_forecast,
+            "tax": tax_expenses_mode,
+            "effective_rate": (tax_expenses_mode / annual_income_forecast * 100) if annual_income_forecast > 0 else 0
+        })
+        
+        # Находим оптимальный режим
+        optimal_scenario = min(tax_scenarios, key=lambda x: x["tax"])
+        current_scenario = next((s for s in tax_scenarios if s["mode"].startswith(current_mode.split("_")[0])), tax_scenarios[0])
+        
+        potential_savings = current_scenario["tax"] - optimal_scenario["tax"]
+        
+        recommendations = []
+        if potential_savings > 0 and optimal_scenario["mode"] != current_scenario["mode"]:
+            recommendations.append({
+                "type": "info",
+                "title": "Оптимизация налогового режима",
+                "message": f"Переход на {optimal_scenario['mode']} может сэкономить {potential_savings:.0f} ₽/год. Текущий налог: {current_scenario['tax']:.0f} ₽, оптимальный: {optimal_scenario['tax']:.0f} ₽"
+            })
+        
+        # Квартальное планирование
+        quarterly_forecast = {
+            "Q1": {"income": annual_income_forecast * 0.25, "expenses": annual_expenses_forecast * 0.25},
+            "Q2": {"income": annual_income_forecast * 0.25, "expenses": annual_expenses_forecast * 0.25},
+            "Q3": {"income": annual_income_forecast * 0.25, "expenses": annual_expenses_forecast * 0.25},
+            "Q4": {"income": annual_income_forecast * 0.25, "expenses": annual_expenses_forecast * 0.25}
+        }
+        
+        return {
+            "available": True,
+            "annual_forecast": {
+                "income": float(annual_income_forecast),
+                "expenses": float(annual_expenses_forecast),
+                "balance": float(annual_income_forecast - annual_expenses_forecast)
+            },
+            "tax_scenarios": tax_scenarios,
+            "optimal_scenario": optimal_scenario,
+            "current_scenario": current_scenario,
+            "potential_savings": float(potential_savings),
+            "quarterly_forecast": quarterly_forecast,
             "recommendations": recommendations
         }

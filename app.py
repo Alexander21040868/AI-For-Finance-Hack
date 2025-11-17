@@ -28,8 +28,10 @@ from document_utils import batch_extract_text
 from time_logger import time_logger
 from token_logger import token_logger
 from history_manager import history_manager
+from transaction_history import transaction_history
 from export_utils import (
     export_transactions_to_excel,
+    export_transactions_to_pdf,
     export_document_analysis_to_pdf,
     export_consultant_to_markdown,
     export_history_to_json,
@@ -328,25 +330,179 @@ async def clear_history():
 
 
 @app.post("/api/export/transactions")
-async def export_transactions(result_data: str = Form(...)):
+async def export_transactions(result_data: str = Form(...), format: str = Form("excel")):
     """
-    Экспортировать результаты анализа транзакций в Excel
+    Экспортировать результаты анализа транзакций в Excel или PDF
     
     - **result_data**: JSON строка с результатами анализа
+    - **format**: Формат экспорта (excel или pdf)
     """
     try:
         result = json.loads(result_data)
-        excel_file = export_transactions_to_excel(result)
         
-        filename = f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        excel_file.seek(0)
-        return StreamingResponse(
-            excel_file,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
-        )
+        if format == "pdf":
+            pdf_file = export_transactions_to_pdf(result)
+            filename = f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            pdf_file.seek(0)
+            return StreamingResponse(
+                pdf_file,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        else:
+            excel_file = export_transactions_to_excel(result)
+            filename = f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            excel_file.seek(0)
+            return StreamingResponse(
+                excel_file,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Библиотека не установлена: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при экспорте: {str(e)}")
+
+
+@app.post("/api/export/transactions/pdf")
+async def export_transactions_pdf(result_data: str = Form(...)):
+    """Алиас для экспорта в PDF"""
+    try:
+        result = json.loads(result_data)
+        pdf_file = export_transactions_to_pdf(result)
+        filename = f"transactions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        pdf_file.seek(0)
+        return StreamingResponse(
+            pdf_file,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Библиотека не установлена: {str(e)}")
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[ERROR] PDF export error: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при экспорте PDF: {str(e)}")
+
+
+@app.get("/api/period-comparison")
+async def get_period_comparison(
+    current_start: str,
+    current_end: str,
+    previous_start: Optional[str] = None,
+    previous_end: Optional[str] = None
+):
+    """
+    Получить сравнение периодов с возможностью выбора дат
+    
+    - **current_start**: Начало текущего периода (YYYY-MM-DD)
+    - **current_end**: Конец текущего периода (YYYY-MM-DD)
+    - **previous_start**: Начало предыдущего периода (YYYY-MM-DD, опционально)
+    - **previous_end**: Конец предыдущего периода (YYYY-MM-DD, опционально)
+    """
+    try:
+        current_start_dt = datetime.fromisoformat(current_start)
+        current_end_dt = datetime.fromisoformat(current_end)
+        
+        if previous_start and previous_end:
+            # Пользователь выбрал конкретный предыдущий период
+            previous_start_dt = datetime.fromisoformat(previous_start)
+            previous_end_dt = datetime.fromisoformat(previous_end)
+            
+            # Получаем транзакции за оба периода
+            all_transactions = transaction_history.get_historical_transactions(days_back=365)
+            
+            current_tx = []
+            previous_tx = []
+            
+            for tx in all_transactions:
+                try:
+                    date_str = tx.get("Дата", "")
+                    if not date_str:
+                        continue
+                    if isinstance(date_str, str):
+                        tx_date = datetime.fromisoformat(date_str.split('T')[0])
+                        if current_start_dt <= tx_date <= current_end_dt:
+                            current_tx.append(tx)
+                        elif previous_start_dt <= tx_date <= previous_end_dt:
+                            previous_tx.append(tx)
+                except (ValueError, AttributeError):
+                    continue
+            
+            # Используем существующую функцию агрегации
+            def aggregate_period(transactions):
+                from collections import defaultdict
+                income = sum(abs(float(tx.get("Сумма", 0))) for tx in transactions 
+                           if tx.get("Категория") == "Поступление от клиента")
+                expenses = sum(abs(float(tx.get("Сумма", 0))) for tx in transactions 
+                              if tx.get("Категория") != "Поступление от клиента")
+                by_category = defaultdict(float)
+                for tx in transactions:
+                    if tx.get("Категория") != "Поступление от клиента":
+                        cat = tx.get("Категория", "Прочее")
+                        by_category[cat] += abs(float(tx.get("Сумма", 0)))
+                return {
+                    "income": income,
+                    "expenses": expenses,
+                    "balance": income - expenses,
+                    "by_category": dict(by_category),
+                    "transaction_count": len(transactions)
+                }
+            
+            current_data = aggregate_period(current_tx)
+            previous_data = aggregate_period(previous_tx)
+            
+            # Расчет процентных изменений
+            comparison = {}
+            if previous_data["income"] > 0:
+                comparison["income_change_pct"] = ((current_data["income"] - previous_data["income"]) / previous_data["income"]) * 100
+            else:
+                comparison["income_change_pct"] = 0 if current_data["income"] == 0 else 100
+            
+            if previous_data["expenses"] > 0:
+                comparison["expenses_change_pct"] = ((current_data["expenses"] - previous_data["expenses"]) / previous_data["expenses"]) * 100
+            else:
+                comparison["expenses_change_pct"] = 0 if current_data["expenses"] == 0 else 100
+            
+            if previous_data["balance"] != 0:
+                comparison["balance_change_pct"] = ((current_data["balance"] - previous_data["balance"]) / abs(previous_data["balance"])) * 100
+            else:
+                comparison["balance_change_pct"] = 0 if current_data["balance"] == 0 else (100 if current_data["balance"] > 0 else -100)
+            
+            return {
+                "current_period": {
+                    "start": current_start,
+                    "end": current_end,
+                    **current_data
+                },
+                "previous_period": {
+                    "start": previous_start,
+                    "end": previous_end,
+                    **previous_data
+                },
+                "comparison": comparison
+            }
+        else:
+            # Автоматический расчет предыдущего периода
+            result = transaction_history.get_period_comparison(current_start_dt, current_end_dt)
+            # Преобразуем datetime в строки для JSON
+            if isinstance(result, dict):
+                if "current_period" in result and "start" in result["current_period"]:
+                    if isinstance(result["current_period"]["start"], datetime):
+                        result["current_period"]["start"] = result["current_period"]["start"].strftime("%Y-%m-%d")
+                    if isinstance(result["current_period"]["end"], datetime):
+                        result["current_period"]["end"] = result["current_period"]["end"].strftime("%Y-%m-%d")
+                if "previous_period" in result and "start" in result["previous_period"]:
+                    if isinstance(result["previous_period"]["start"], datetime):
+                        result["previous_period"]["start"] = result["previous_period"]["start"].strftime("%Y-%m-%d")
+                    if isinstance(result["previous_period"]["end"], datetime):
+                        result["previous_period"]["end"] = result["previous_period"]["end"].strftime("%Y-%m-%d")
+            return result
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Period comparison error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при расчете сравнения периодов: {str(e)}")
 
 
 @app.post("/api/export/document")

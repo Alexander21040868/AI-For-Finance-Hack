@@ -863,6 +863,7 @@ input[type="radio"]:checked + .tax-button {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 1000;
     overflow: hidden;
+    overflow-y: hidden;
     max-height: 0;
     padding: 0;
     margin: 0;
@@ -876,6 +877,8 @@ input[type="radio"]:checked + .tax-button {
     visibility: visible;
     transform: translateY(0);
     max-height: 300px;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .history-filter-menu input[type="radio"] {
@@ -1379,5 +1382,79 @@ input[type="radio"]:checked + .history-filter-option::before {
 .btn-show-full:active {
     transform: translateY(0);
     box-shadow: 0 4px 14px 0 rgba(139, 92, 246, 0.25);
+}
+
+/* Стили для графиков и визуализаций */
+.chart-wrapper {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    box-shadow: var(--shadow-sm);
+    min-height: 350px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chart-wrapper canvas {
+    flex: 1;
+    max-height: 300px;
+    width: 100% !important;
+    height: auto !important;
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 1;
+}
+
+.charts-container {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    width: 100%;
+}
+
+@media (max-width: 1200px) {
+    .charts-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Цвета для сумм транзакций */
+.text-success {
+    color: rgba(34, 197, 94, 1) !important;
+}
+
+.text-danger {
+    color: rgba(239, 68, 68, 1) !important;
+}
+
+/* Стили для фильтров */
+.filters-container {
+    margin-bottom: 20px;
+}
+
+.filter-select,
+.filter-input {
+    font-family: inherit;
+    transition: all 0.2s ease;
+}
+
+.filter-select:focus,
+.filter-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+/* Адаптивность для графиков */
+@media (max-width: 768px) {
+    .charts-container {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .chart-wrapper {
+        padding: 16px;
+    }
 }
 
